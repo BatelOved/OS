@@ -82,12 +82,18 @@ void _removeBackgroundSign(char* cmd_line) {
 
 // TODO: Add your implementation for classes in Commands.h 
 
-SmallShell::SmallShell(): prev_dir((char**)malloc(COMMAND_ARGS_MAX_LENGTH)) {
+SmallShell::SmallShell(): prompt((char*)malloc(COMMAND_ARGS_MAX_LENGTH)), prev_dir((char**)malloc(COMMAND_ARGS_MAX_LENGTH)) {
+  strcpy(this->prompt, "smash");
   *(this->prev_dir) = nullptr;
 }
 
 SmallShell::~SmallShell() {
+  free(this->prompt);
   free(this->prev_dir);
+}
+
+std::ostream& SmallShell::getPrompt(std::ostream& os) const {
+    return os << this->prompt;
 }
 
 JobsList::JobsList() {
@@ -118,7 +124,7 @@ Command * SmallShell::CreateCommand(const char* cmd_line) {
     return new ChangeDirCommand(cmd_line, this->prev_dir);
   }
   else if (firstWord.compare("chprompt") == 0) {
-    return new ChangePrompt(cmd_line, args[1]);
+    return new ChangePrompt(cmd_line, args[1], this->prompt);
   }
   
   else {
@@ -156,25 +162,11 @@ void ExternalCommand::execute() {
   
 }
 
-ChangePrompt::ChangePrompt(const char* cmd_line, const char* prompt_name): BuiltInCommand(cmd_line) {
-  SmallShell& smash = SmallShell::getInstance();
-
-  if (name) {
-    this->name = (char*)malloc(sizeof(name)+1);
-    strcpy(this->name, name);
-  }
+ChangePrompt::ChangePrompt(const char* cmd_line, const char* prompt_name, char* prompt): BuiltInCommand(cmd_line) {
+  if (prompt_name)
+    strcpy(prompt, prompt_name);
   else
-    this->name = (char*)malloc(sizeof("smash")+1);
-    strcpy(this->name, "smash");
-}
-
-void ChangePrompt::execute() {
-    // while(true) {
-    //     std::cout << this->name << "> ";
-    //     std::string cmd_line;
-    //     std::getline(std::cin, cmd_line);
-    //     smash.executeCommand(cmd_line.c_str());
-    // }
+    strcpy(prompt, "smash");
 }
 
 ChangeDirCommand::ChangeDirCommand(const char* cmd_line, char** plastPwd): BuiltInCommand(cmd_line), 
@@ -201,7 +193,7 @@ ChangeDirCommand::ChangeDirCommand(const char* cmd_line, char** plastPwd): Built
   strcpy(this->path, args[1]);
 }
 
-void ChangeDirCommand::execute() { // TODO: Add error handling
+void ChangeDirCommand::execute() {
   char* temp = (char*)malloc(COMMAND_ARGS_MAX_LENGTH);
 
   if (strcmp(this->path, "-") == 0)

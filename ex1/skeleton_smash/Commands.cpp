@@ -108,8 +108,7 @@ JobsList::~JobsList() {
 * Creates and returns a pointer to Command class which matches the given command line (cmd_line)
 */
 Command * SmallShell::CreateCommand(const char* cmd_line) {
-	// For example:
-  char** args = (char**)malloc(COMMAND_ARGS_MAX_LENGTH);
+  char** args = (char**)malloc(COMMAND_MAX_ARGS+1);
   string cmd_s = _trim(string(cmd_line));
   string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
   _parseCommandLine(cmd_line, args);
@@ -132,7 +131,24 @@ Command * SmallShell::CreateCommand(const char* cmd_line) {
   else if (firstWord.compare("fg") == 0) {
     return new ForegroundCommand(cmd_line, &(this->jobs));
   }
-  
+  else if (firstWord.compare("bg") == 0) {
+    return new BackgroundCommand(cmd_line, &(this->jobs));
+  }
+  else if (firstWord.compare("kill") == 0) {
+    return new KillCommand(cmd_line, &(this->jobs));
+  }
+  else if (firstWord.compare("quit") == 0) {
+    // TODO
+  }
+  else if (firstWord.compare("tail") == 0) {
+    return new TailCommand(cmd_line);
+  }
+  else if (firstWord.compare("touch") == 0) {
+    return new TouchCommand(cmd_line);
+  }
+  else if (firstWord.compare("timeout") == 0) {
+    // TODO
+  }
   else {
     return new ExternalCommand(cmd_line);
   }
@@ -162,7 +178,16 @@ BuiltInCommand::BuiltInCommand(const char* cmd_line): Command(cmd_line) {
 }
 
 ExternalCommand::ExternalCommand(const char* cmd_line): Command(cmd_line) {
+  pid_t p = fork();
 
+	if (p == 0) {
+    printf("child pid = %d\n", getpid());
+    const char* args[] = {"/bin/bash", "-c", cmd_line, NULL};
+    execv(args[0], (char**)args);
+	}
+  else {
+    wait(NULL);
+  }
 }
 
 void ExternalCommand::execute() {
@@ -201,7 +226,6 @@ ChangeDirCommand::ChangeDirCommand(const char* cmd_line, char** plastPwd): Built
   strcpy(this->path, args[1]);
 }
 
-
 void ChangeDirCommand::execute() {
   char* temp = (char*)malloc(COMMAND_ARGS_MAX_LENGTH);
 
@@ -234,7 +258,6 @@ ShowPidCommand::ShowPidCommand(const char* cmd_line): BuiltInCommand(cmd_line) {
 void ShowPidCommand::execute() {
   cout << "smash pid is " << getpid() << endl;
 }
-
 
 JobsCommand::JobsCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), list(jobs) {
     
@@ -274,11 +297,43 @@ void ForegroundCommand::execute() {
   char** args=(char**)malloc(COMMAND_MAX_ARGS);
   _parseCommandLine(this->cmd_line,args);
 
-  if(args[2]) {
-    cerr<<"smash error: fg: invalid arguments";
-    freeArguments(args);
-    return;
-  }
+  // if(args[2]) {
+  //   cerr<<"smash error: fg: invalid arguments";
+  //   freeArguments(args);
+  //   return;
+  // }
 
-  if()
+  // if()
+}
+
+BackgroundCommand::BackgroundCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){
+
+}
+
+void BackgroundCommand::execute() {
+
+}
+
+KillCommand::KillCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){
+
+}
+
+void KillCommand::execute() {
+
+}
+
+TailCommand::TailCommand(const char* cmd_line) : BuiltInCommand(cmd_line){
+
+}
+
+void TailCommand::execute() {
+
+}
+
+TouchCommand::TouchCommand(const char* cmd_line) : BuiltInCommand(cmd_line){
+
+}
+
+void TouchCommand::execute() {
+
 }

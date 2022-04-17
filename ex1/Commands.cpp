@@ -181,7 +181,6 @@ ExternalCommand::ExternalCommand(const char* cmd_line): Command(cmd_line) {
   pid_t p = fork();
 
 	if (p == 0) {
-    printf("child pid = %d\n", getpid());
     const char* args[] = {"/bin/bash", "-c", cmd_line, NULL};
     execv(args[0], (char**)args);
 	}

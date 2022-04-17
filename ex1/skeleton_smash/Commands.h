@@ -6,11 +6,11 @@
 #define COMMAND_ARGS_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
 
-enum State { UNFINISHED = 0, STOPPED = 1 };
-
 class Command {
 // TODO: Add your data members
  public:
+  char* cmd_line;
+
   Command(const char* cmd_line);
   virtual ~Command();
   virtual void execute() = 0;

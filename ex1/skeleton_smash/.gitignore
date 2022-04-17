@@ -1,4 +1,4 @@
 build/*
 *.o
-CMakeLists.txt
 smash
+.vscode/*

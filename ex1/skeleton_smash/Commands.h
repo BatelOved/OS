@@ -6,6 +6,8 @@
 #define COMMAND_ARGS_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
 
+enum State { UNFINISHED = 0, STOPPED = 1 };
+
 class Command {
 // TODO: Add your data members
  public:
@@ -96,9 +98,19 @@ class QuitCommand : public BuiltInCommand {
 class JobsList {
  public:
   class JobEntry {
-   // TODO: Add your data members
+    public:
+        bool is_stopped;
+        int job_id;
+        Command* cmd;
+        int process_id;
+        time_t job_time;
+        bool finished;
+    
+    public:
+        JobEntry(bool is_stopped, int job_id, Command* cmd, int process_id) : is_stopped(is_stopped), job_id(job_id), 
+            cmd(cmd), process_id(process_id), job_time(time(NULL)), finished(0) {}
   };
- // TODO: Add your data members
+ std::vector<JobEntry> jobs_vector;
  public:
   JobsList();
   ~JobsList();
@@ -114,7 +126,7 @@ class JobsList {
 };
 
 class JobsCommand : public BuiltInCommand {
- // TODO: Add your data members
+  JobsList* list;
  public:
   JobsCommand(const char* cmd_line, JobsList* jobs);
   virtual ~JobsCommand() {}

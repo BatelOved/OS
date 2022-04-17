@@ -129,6 +129,7 @@ Command * SmallShell::CreateCommand(const char* cmd_line) {
 }
 
 void SmallShell::executeCommand(const char *cmd_line) {
+  this->jobs.removeFinishedJobs();
   // TODO: Add your implementation here
   // for example:
   Command* cmd = CreateCommand(cmd_line);
@@ -163,9 +164,10 @@ ChangePrompt::ChangePrompt(const char* cmd_line, const char* prompt_name): Built
     this->name = (char*)malloc(sizeof(name)+1);
     strcpy(this->name, name);
   }
-  else
+  else {
     this->name = (char*)malloc(sizeof("smash")+1);
     strcpy(this->name, "smash");
+  }
 }
 
 void ChangePrompt::execute() {
@@ -187,33 +189,34 @@ ChangeDirCommand::ChangeDirCommand(const char* cmd_line, char** plastPwd): Built
   if (args[2])
     perror("smash error: cd: too many arguments");
 
-  if (strcmp(args[1], "-") == 0 && !plastPwd)
-    perror("smash error: cd: OLDPWD not set");
-
+  if (!(*plastPwd)) {
+    if (strcmp(args[1], "-") == 0) {
+      perror("smash error: cd: OLDPWD not set");
+    }
+    else {
+      *plastPwd = (char*)malloc(COMMAND_ARGS_MAX_LENGTH);
+      getcwd(*plastPwd, COMMAND_ARGS_MAX_LENGTH);
+    }
+  }
+  getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
+  strcpy(this->prev_dir, *plastPwd);
+  strcpy(*plastPwd, this->curr_dir);
   strcpy(this->path, args[1]);
 }
 
 void ChangeDirCommand::execute() { //TODO: Add error handling
-  if (strcmp(this->path, "-") == 0) {
-    chdir(this->prev_dir);
-    char* temp = this->prev_dir;
-    this->prev_dir = this->curr_dir;
-    this->curr_dir = temp;
+  char* temp = (char*)malloc(COMMAND_ARGS_MAX_LENGTH);
 
+  if (strcmp(this->path, "-") == 0)
+    strcpy(temp, this->prev_dir);
+  else
+    strcpy(temp, this->path);
 
-    char* temp = this->prev_dir;
-    getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
-    chdir(this->prev_dir);
-    getcwd(this->prev_dir, COMMAND_ARGS_MAX_LENGTH);
-  }
-  else if (strcmp(this->path, "..") == 0) {
-    
-  }
-  else {
-    getcwd(this->prev_dir, COMMAND_ARGS_MAX_LENGTH);
-    chdir(this->path);
-    getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
-  }
+  getcwd(this->prev_dir, COMMAND_ARGS_MAX_LENGTH);
+  chdir(temp);
+  getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
+
+  free(temp);
 }
 
 GetCurrDirCommand::GetCurrDirCommand(const char* cmd_line): BuiltInCommand(cmd_line) {
@@ -234,3 +237,33 @@ void ShowPidCommand::execute() {
   cout << "smash pid is " << getpid() << endl;
 }
 
+
+JobsCommand::JobsCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), list(jobs) {
+    
+}
+
+void JobsCommand::execute() {
+    list->printJobsList();
+}
+
+void JobsList::addJob(Command* cmd, bool isStopped) {
+    jobs_vector.push_back(JobEntry(isStopped, jobs_vector.back().job_id + 1, cmd, getpid()));
+}
+
+void JobsList::printJobsList() {
+    for (JobEntry iter : jobs_vector) {
+        cout << "[" << iter.job_id << "]" << iter.cmd << ":" << iter.process_id << difftime(time(NULL), iter.job_time);
+        if (iter.is_stopped) {
+            cout << "(stopped)";
+        }
+        cout << endl;
+    }
+}
+
+void JobsList::removeFinishedJobs() {
+  for(vector<JobEntry>::const_iterator iter=jobs_vector.begin();iter!=jobs_vector.end();iter++) {
+    if(iter->finished) {
+      jobs_vector.erase(iter);
+    }
+  }
+}

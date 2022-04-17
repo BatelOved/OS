@@ -48,8 +48,20 @@ class RedirectionCommand : public Command {
   //void cleanup() override;
 };
 
+class ChangePrompt : public BuiltInCommand {
+// TODO: Add your data members
+  char* name;
+ public:
+  ChangePrompt(const char* cmd_line, const char* prompt_name);
+  virtual ~ChangePrompt() {}
+  void execute() override;
+};
+
 class ChangeDirCommand : public BuiltInCommand {
-// TODO: Add your data members public:
+  char* curr_dir;
+  char* prev_dir;
+  char* path;
+ public:
   ChangeDirCommand(const char* cmd_line, char** plastPwd);
   virtual ~ChangeDirCommand() {}
   void execute() override;
@@ -71,7 +83,8 @@ class ShowPidCommand : public BuiltInCommand {
 
 class JobsList;
 class QuitCommand : public BuiltInCommand {
-// TODO: Add your data members public:
+// TODO: Add your data members 
+ public:
   QuitCommand(const char* cmd_line, JobsList* jobs);
   virtual ~QuitCommand() {}
   void execute() override;
@@ -149,7 +162,9 @@ class TouchCommand : public BuiltInCommand {
 
 class SmallShell {
  private:
-  // TODO: Add your data members
+  JobsList jobs;
+  char** prev_dir;
+
   SmallShell();
  public:
   Command *CreateCommand(const char* cmd_line);

@@ -1,2 +1,3 @@
-chprompt batel
-showpid
+pwd
+cd ..
+pwd

@@ -126,6 +126,12 @@ Command * SmallShell::CreateCommand(const char* cmd_line) {
   else if (firstWord.compare("chprompt") == 0) {
     return new ChangePrompt(cmd_line, args[1], this->prompt);
   }
+  else if (firstWord.compare("jobs") == 0) {
+    return new JobsCommand(cmd_line, &(this->jobs));
+  }
+  else if (firstWord.compare("fg") == 0) {
+    return new ForegroundCommand(cmd_line, &(this->jobs));
+  }
   
   else {
     return new ExternalCommand(cmd_line);
@@ -258,4 +264,21 @@ void JobsList::removeFinishedJobs() {
       jobs_vector.erase(iter);
     }
   }
+}
+
+ForegroundCommand::ForegroundCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){
+
+}
+
+void ForegroundCommand::execute() {
+  char** args=(char**)malloc(COMMAND_MAX_ARGS);
+  _parseCommandLine(this->cmd_line,args);
+
+  if(args[2]) {
+    cerr<<"smash error: fg: invalid arguments";
+    freeArguments(args);
+    return;
+  }
+
+  if()
 }

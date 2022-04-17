@@ -82,12 +82,12 @@ void _removeBackgroundSign(char* cmd_line) {
 
 // TODO: Add your implementation for classes in Commands.h 
 
-SmallShell::SmallShell(): curr_dir((char*)malloc(COMMAND_ARGS_MAX_LENGTH)), prev_dir(nullptr) {
-  getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
+SmallShell::SmallShell(): prev_dir((char**)malloc(COMMAND_ARGS_MAX_LENGTH)) {
+  *(this->prev_dir) = nullptr;
 }
 
 SmallShell::~SmallShell() {
-  free(this->curr_dir);
+  free(this->prev_dir);
 }
 
 JobsList::JobsList() {
@@ -115,7 +115,7 @@ Command * SmallShell::CreateCommand(const char* cmd_line) {
     return new ShowPidCommand(cmd_line);
   }
   else if (firstWord.compare("cd") == 0) {
-    return new ChangeDirCommand(cmd_line, &this->prev_dir);
+    return new ChangeDirCommand(cmd_line, this->prev_dir);
   }
   else if (firstWord.compare("chprompt") == 0) {
     return new ChangePrompt(cmd_line, args[1]);
@@ -179,7 +179,7 @@ void ChangePrompt::execute() {
 
 ChangeDirCommand::ChangeDirCommand(const char* cmd_line, char** plastPwd): BuiltInCommand(cmd_line), 
             curr_dir((char*)malloc(COMMAND_ARGS_MAX_LENGTH)), prev_dir((char*)malloc(COMMAND_ARGS_MAX_LENGTH)), 
-                                                                            path((char*)malloc(COMMAND_ARGS_MAX_LENGTH)) {
+                                                                      path((char*)malloc(COMMAND_ARGS_MAX_LENGTH)) {
   char** args = (char**)malloc(COMMAND_ARGS_MAX_LENGTH);
   string cmd_s = _trim(string(cmd_line));
   _parseCommandLine(cmd_line, args);
@@ -187,33 +187,33 @@ ChangeDirCommand::ChangeDirCommand(const char* cmd_line, char** plastPwd): Built
   if (args[2])
     perror("smash error: cd: too many arguments");
 
-  if (strcmp(args[1], "-") == 0 && !plastPwd)
-    perror("smash error: cd: OLDPWD not set");
-
+  if (!(*plastPwd)) {
+    if (strcmp(args[1], "-") == 0)
+      perror("smash error: cd: OLDPWD not set");
+    else {
+      *plastPwd = (char*)malloc(COMMAND_ARGS_MAX_LENGTH);
+      getcwd(*plastPwd, COMMAND_ARGS_MAX_LENGTH);
+    }
+  }
+  getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
+  strcpy(this->prev_dir, *plastPwd);
+  strcpy(*plastPwd, this->curr_dir);
   strcpy(this->path, args[1]);
 }
 
-void ChangeDirCommand::execute() { //TODO: Add error handling
-  if (strcmp(this->path, "-") == 0) {
-    chdir(this->prev_dir);
-    char* temp = this->prev_dir;
-    this->prev_dir = this->curr_dir;
-    this->curr_dir = temp;
+void ChangeDirCommand::execute() { // TODO: Add error handling
+  char* temp = (char*)malloc(COMMAND_ARGS_MAX_LENGTH);
 
+  if (strcmp(this->path, "-") == 0)
+    strcpy(temp, this->prev_dir);
+  else
+    strcpy(temp, this->path);
 
-    char* temp = this->prev_dir;
-    getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
-    chdir(this->prev_dir);
-    getcwd(this->prev_dir, COMMAND_ARGS_MAX_LENGTH);
-  }
-  else if (strcmp(this->path, "..") == 0) {
-    
-  }
-  else {
-    getcwd(this->prev_dir, COMMAND_ARGS_MAX_LENGTH);
-    chdir(this->path);
-    getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
-  }
+  getcwd(this->prev_dir, COMMAND_ARGS_MAX_LENGTH);
+  chdir(temp);
+  getcwd(this->curr_dir, COMMAND_ARGS_MAX_LENGTH);
+
+  free(temp);
 }
 
 GetCurrDirCommand::GetCurrDirCommand(const char* cmd_line): BuiltInCommand(cmd_line) {

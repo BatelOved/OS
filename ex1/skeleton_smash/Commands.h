@@ -163,8 +163,7 @@ class TouchCommand : public BuiltInCommand {
 class SmallShell {
  private:
   JobsList jobs;
-  char* curr_dir;
-  char* prev_dir;
+  char** prev_dir;
 
   SmallShell();
  public:

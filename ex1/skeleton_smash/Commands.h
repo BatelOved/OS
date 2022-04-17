@@ -50,11 +50,10 @@ class RedirectionCommand : public Command {
 
 class ChangePrompt : public BuiltInCommand {
 // TODO: Add your data members
-  char* name;
  public:
-  ChangePrompt(const char* cmd_line, const char* prompt_name);
+  ChangePrompt(const char* cmd_line, const char* prompt_name, char* prompt);
   virtual ~ChangePrompt() {}
-  void execute() override;
+  void execute() override {}
 };
 
 class ChangeDirCommand : public BuiltInCommand {
@@ -162,6 +161,7 @@ class TouchCommand : public BuiltInCommand {
 
 class SmallShell {
  private:
+  char* prompt;
   JobsList jobs;
   char** prev_dir;
 
@@ -178,7 +178,7 @@ class SmallShell {
   }
   ~SmallShell();
   void executeCommand(const char* cmd_line);
-  // TODO: add extra methods as needed
+  std::ostream& getPrompt(std::ostream& os) const;
 };
 
 #endif //SMASH_COMMAND_H_

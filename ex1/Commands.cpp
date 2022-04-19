@@ -96,18 +96,12 @@ std::ostream& SmallShell::getPrompt(std::ostream& os) const {
     return os << this->prompt;
 }
 
-JobsList::JobsList() {
-
-}
-
-JobsList::~JobsList() {
-  
-}
 
 /**
 * Creates and returns a pointer to Command class which matches the given command line (cmd_line)
 */
 Command * SmallShell::CreateCommand(const char* cmd_line) {
+
   char** args = (char**)malloc(COMMAND_MAX_ARGS+1);
   string cmd_s = _trim(string(cmd_line));
   string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
@@ -152,30 +146,28 @@ Command * SmallShell::CreateCommand(const char* cmd_line) {
   else {
     return new ExternalCommand(cmd_line);
   }
-  free(args);
+  free(args); //should write a different free functions. that's a memory leak
   return nullptr;
 }
 
 void SmallShell::executeCommand(const char *cmd_line) {
-  this->jobs.removeFinishedJobs();
-  // TODO: Add your implementation here
-  // for example:
+
+  //Creating a new command
   Command* cmd = CreateCommand(cmd_line);
+
+  //Cleaning the jobs list from inrelevant jobs
+  this->jobs.removeFinishedJobs();
+
+  //Executes the command(using a virtual method of the command)
   cmd->execute();
-  // Please note that you must fork smash process for some commands (e.g., external commands....)
+
+  free(cmd);
 }
 
-Command::Command(const char* cmd_line) {
+Command::Command(const char* cmd_line) { }
 
-}
+Command::~Command() { }
 
-Command::~Command() {
-
-}
-
-BuiltInCommand::BuiltInCommand(const char* cmd_line): Command(cmd_line) {
-
-}
 
 ExternalCommand::ExternalCommand(const char* cmd_line): Command(cmd_line) {
   pid_t p = fork();
@@ -189,10 +181,34 @@ ExternalCommand::ExternalCommand(const char* cmd_line): Command(cmd_line) {
   }
 }
 
-void ExternalCommand::execute() {
-  
+void ExternalCommand::execute() { 
+
 }
 
+TailCommand::TailCommand(const char* cmd_line) : BuiltInCommand(cmd_line){
+
+}
+
+void TailCommand::execute() {
+
+}
+
+TouchCommand::TouchCommand(const char* cmd_line) : BuiltInCommand(cmd_line){
+
+}
+
+void TouchCommand::execute() {
+
+}
+
+// Should add cases of failed waitpid and so on
+
+/***************************************** Built-in commands *****************************************/
+
+BuiltInCommand::BuiltInCommand(const char* cmd_line): Command(cmd_line) { }
+
+
+//chprompt
 ChangePrompt::ChangePrompt(const char* cmd_line, const char* prompt_name, char* prompt): BuiltInCommand(cmd_line) {
   if (prompt_name)
     strcpy(prompt, prompt_name);
@@ -200,6 +216,26 @@ ChangePrompt::ChangePrompt(const char* cmd_line, const char* prompt_name, char* 
     strcpy(prompt, "smash");
 }
 
+
+//showpid
+ShowPidCommand::ShowPidCommand(const char* cmd_line): BuiltInCommand(cmd_line) { }
+
+void ShowPidCommand::execute() {
+  cout << "smash pid is " << getpid() << endl;
+}
+
+
+//pwd
+GetCurrDirCommand::GetCurrDirCommand(const char* cmd_line): BuiltInCommand(cmd_line) { }
+
+void GetCurrDirCommand::execute() {
+  char* buff = (char*)malloc(COMMAND_ARGS_MAX_LENGTH);
+  cout << getcwd(buff, COMMAND_ARGS_MAX_LENGTH) << endl;
+  free(buff);
+}
+
+
+//cd
 ChangeDirCommand::ChangeDirCommand(const char* cmd_line, char** plastPwd): BuiltInCommand(cmd_line), 
             curr_dir((char*)malloc(COMMAND_ARGS_MAX_LENGTH)), prev_dir((char*)malloc(COMMAND_ARGS_MAX_LENGTH)), 
                                                                       path((char*)malloc(COMMAND_ARGS_MAX_LENGTH)) {
@@ -240,99 +276,156 @@ void ChangeDirCommand::execute() {
   free(temp);
 }
 
-GetCurrDirCommand::GetCurrDirCommand(const char* cmd_line): BuiltInCommand(cmd_line) {
-  
-}
 
-void GetCurrDirCommand::execute() {
-  char* buff = (char*)malloc(COMMAND_ARGS_MAX_LENGTH);
-  cout << getcwd(buff, COMMAND_ARGS_MAX_LENGTH) << endl;
-  free(buff);
-}
-
-ShowPidCommand::ShowPidCommand(const char* cmd_line): BuiltInCommand(cmd_line) {
-
-}
-
-void ShowPidCommand::execute() {
-  cout << "smash pid is " << getpid() << endl;
-}
-
-JobsCommand::JobsCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), list(jobs) {
-    
-}
+//jobs
+JobsCommand::JobsCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), list(jobs) { }
 
 void JobsCommand::execute() {
     list->printJobsList();
 }
 
-void JobsList::addJob(Command* cmd, bool isStopped) {
-    jobs_vector.push_back(JobEntry(isStopped, jobs_vector.back().job_id + 1, cmd, getpid()));
-}
 
-void JobsList::printJobsList() {
-    for (JobEntry iter : jobs_vector) {
-        cout << "[" << iter.job_id << "]" << iter.cmd << ":" << iter.process_id << difftime(time(NULL), iter.job_time);
-        if (iter.is_stopped) {
-            cout << "(stopped)";
-        }
-        cout << endl;
-    }
-}
-
-void JobsList::removeFinishedJobs() {
-  for(vector<JobEntry>::const_iterator iter=jobs_vector.begin();iter!=jobs_vector.end();iter++) {
-    if(iter->finished) {
-      jobs_vector.erase(iter);
-    }
-  }
-}
-
-ForegroundCommand::ForegroundCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){
-
-}
-
-void ForegroundCommand::execute() {
-  char** args=(char**)malloc(COMMAND_MAX_ARGS);
-  _parseCommandLine(this->cmd_line,args);
-
-  // if(args[2]) {
-  //   cerr<<"smash error: fg: invalid arguments";
-  //   freeArguments(args);
-  //   return;
-  // }
-
-  // if()
-}
-
-BackgroundCommand::BackgroundCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){
-
-}
-
-void BackgroundCommand::execute() {
-
-}
-
-KillCommand::KillCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){
-
-}
+//kill
+KillCommand::KillCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){ }
 
 void KillCommand::execute() {
 
 }
 
-TailCommand::TailCommand(const char* cmd_line) : BuiltInCommand(cmd_line){
+
+//fg
+ForegroundCommand::ForegroundCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){ }
+
+void ForegroundCommand::execute() {
+  char** args=(char**)malloc(COMMAND_MAX_ARGS);
+  _parseCommandLine(this->cmd_line,args);
+
+  if(args[2]) {
+    cerr<<"smash error: fg: invalid arguments";
+    //freeArguments(args);
+    return;
+  }
+
+  //if()
+}
+
+
+//bg
+BackgroundCommand::BackgroundCommand(const char* cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line){ }
+
+void BackgroundCommand::execute() {
 
 }
 
-void TailCommand::execute() {
+
+//quit
+
+
+
+/***************************************** JobsList methods *****************************************/
+
+JobsList::JobsList() : jobs_vector(vector<JobEntry>()), max_id(0) {}
+
+JobsList::~JobsList() {}
+
+void JobsList::addJob(Command* cmd, bool isStopped = false) {
+    jobs_vector.push_back(JobEntry(++this->max_id, getpid(), isStopped, cmd));
+}
+
+void JobsList::printJobsList() {
+  for (JobEntry& iter : jobs_vector) {
+    cout << "[" << iter.getJobID() << "]" << iter.getCommand().cmd_line << ":" << iter.getProcessID() << iter.returnDiffTime();
+    if (iter.isStopped()) {
+      cout << "(stopped)";
+    }
+    cout << endl;
+  }
+}
+
+void JobsList::killAllJobs() {
+  cout<<"smash: killing all jobs";
+
+  for(JobEntry& iter:jobs_vector) {
+    if(kill(iter.getProcessID(), SIGKILL) == -1) {
+      cerr<<"error: kill signal failed";
+    }
+    else {
+      int status;
+      if(waitpid(iter.getProcessID(), &status, 0) != iter.getProcessID()) {
+        cerr<<"error: waitpid failed";
+      }
+    }
+  }
+  jobs_vector.clear();
+  max_id=0;
+}
+
+void JobsList::removeFinishedJobs() {
+  for(vector<JobEntry>::iterator iter = jobs_vector.begin(); iter != jobs_vector.end(); iter++) {
+    int is_finished = waitpid((*iter).getProcessID(), nullptr, WNOHANG);
+
+    if((*iter).getProcessID() == is_finished) {
+      jobs_vector.erase(iter);
+    }
+  }
+
+  if(jobs_vector.empty()) {
+    max_id=0;
+  }
+  else {
+    max_id=jobs_vector.back().getJobID();
+  }
+}
+
+JobsList::JobEntry* JobsList::getJobById(int jobId) {
+  for(JobEntry& iter:jobs_vector) {
+    if(iter.getJobID() == jobId) {
+      return &iter;
+    }
+  }
+
+  return nullptr;
+}
+
+void JobsList::removeJobById(int jobId) {
+  for(vector<JobEntry>::iterator iter = jobs_vector.begin(); iter != jobs_vector.end(); iter++) {
+    if((*iter).getJobID() == jobId) {
+      jobs_vector.erase(iter);
+
+      if(jobs_vector.empty()) {
+        max_id = 0;
+      }
+      else {
+        max_id = jobs_vector.back().getJobID();
+      }
+    }
+  }
+}
+
+JobsList::JobEntry* JobsList::getLastJob(int* lastJobId) {
+  if(jobs_vector.empty()) {
+    return nullptr;
+  }
+  
+  if(lastJobId) {
+    *lastJobId = jobs_vector.back().getJobID();
+  }
+
+  return &jobs_vector.back();
 
 }
 
-TouchCommand::TouchCommand(const char* cmd_line) : BuiltInCommand(cmd_line){
+JobsList::JobEntry* JobsList::getLastStoppedJob(int *jobId) {
+  JobEntry* last_stopped_job = nullptr;
+  for(JobEntry& iter:jobs_vector) {
+    if(iter.isStopped()) {
+      last_stopped_job = &iter;
+    }
+  }
 
-}
+  if(last_stopped_job && jobId) {
+    *jobId = last_stopped_job->getJobID();
+  }
 
-void TouchCommand::execute() {
-
+  return last_stopped_job;
 }

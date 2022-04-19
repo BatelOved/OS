@@ -97,19 +97,26 @@ class QuitCommand : public BuiltInCommand {
 class JobsList {
  public:
   class JobEntry {
-    public:
-        bool is_stopped;
         int job_id;
-        Command* cmd;
         int process_id;
-        time_t job_time;
+        bool is_stopped;
         bool finished;
+        Command* cmd;
+        time_t job_time;
     
     public:
-        JobEntry(bool is_stopped, int job_id, Command* cmd, int process_id) : is_stopped(is_stopped), job_id(job_id), 
-            cmd(cmd), process_id(process_id), job_time(time(NULL)), finished(0) {}
+        JobEntry(int job_id, int process_id, bool is_stopped, Command* cmd) : job_id(job_id), 
+            process_id(process_id), is_stopped(is_stopped), finished(0), cmd(cmd), job_time(time(NULL)) {}
+
+        int getJobID() { return job_id; }
+        int getProcessID() { return process_id; }
+        bool isStopped() { return is_stopped; }
+        Command& getCommand() { return *cmd; }
+        time_t returnDiffTime() { return difftime(time(NULL), job_time); }
   };
- std::vector<JobEntry> jobs_vector;
+ 
+  vector<JobEntry> jobs_vector;
+  int max_id;
  public:
   JobsList();
   ~JobsList();

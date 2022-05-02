@@ -16,8 +16,9 @@ void ctrlZHandler(int sig_num) {
 
 	if (p == 0) {
     smash.getJobsList().printJobsList();
-    smash.getJobsList().addJob(smash.CreateCommand("bg"), p, true);
-    smash.executeCommand((string("kill -") + to_string(SIGSTOP) + string(" ") + to_string(getpid())).c_str());
+    smash.getJobsList().addJob(smash.CreateCommand("sleep"), getpid());
+    int x = 5;
+    //smash.executeCommand((string("kill -") + to_string(SIGSTOP) + string(" ") + to_string(getpid())).c_str());
 
     setpgrp();
 	}

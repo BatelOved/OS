@@ -367,7 +367,7 @@ void KillCommand::execute() {
 		return;
 	}
 
-  pid_t pid_to_kill=jobs.getJobById(job_id)->getProcessID();
+  pid_t pid_to_kill=to_kill->getProcessID();
   if(kill(pid_to_kill, signal) == -1) {
     perror("smash error: kill failed"); //The error handling should be checked
     _freeArguments(args);
@@ -549,6 +549,7 @@ void ExternalCommand::execute() {
       smash.getJobsList().addJob(this, p);
     }
     else {
+      cout << "hi" << endl;
       wait(NULL);
     }
   }
@@ -631,18 +632,18 @@ void TouchCommand::execute() {
 
 /***************************************** JobsList methods *****************************************/
 
-JobsList::JobsList(): jobs_vector(vector<JobEntry>()), max_id(0) {}
+JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), max_id(0) {}
 
 JobsList::~JobsList() {}
 
 void JobsList::addJob(Command* cmd, pid_t child_pid, bool isStopped) {
-    jobs_vector.push_back(JobEntry(this->max_id++, child_pid, isStopped, cmd));
+    jobs_vector.push_back(new JobEntry(this->max_id++, child_pid, isStopped, cmd));
 }
 
 void JobsList::printJobsList() {
-  for (JobEntry& iter : jobs_vector) {
-    cout << "[" << iter.getJobID() << "] " << iter.getCommand()->getCmdLine() << " : " << iter.getProcessID() << " " << iter.returnDiffTime() << " secs";
-    if (iter.isStopped()) {
+  for (JobEntry* iter : jobs_vector) {
+    cout << "[" << iter->getJobID() << "] " << iter->getCommand()->getCmdLine() << " : " << iter->getProcessID() << " " << iter->returnDiffTime() << " secs";
+    if (iter->isStopped()) {
       cout << " (stopped)";
     }
     cout << endl;
@@ -652,13 +653,13 @@ void JobsList::printJobsList() {
 void JobsList::killAllJobs() {
   cout<<"smash: killing all jobs"<<endl;
 
-  for(JobEntry& iter : jobs_vector) {
-    if(kill(iter.getProcessID(), SIGKILL) == -1) {
+  for(JobEntry* iter : jobs_vector) {
+    if(kill(iter->getProcessID(), SIGKILL) == -1) {
       cerr<<"error: kill signal failed";
     }
     else {
       int status;
-      if(waitpid(iter.getProcessID(), &status, 0) != iter.getProcessID()) {
+      if(waitpid(iter->getProcessID(), &status, 0) != iter->getProcessID()) {
         cerr<<"error: waitpid failed";
       }
     }
@@ -669,8 +670,8 @@ void JobsList::killAllJobs() {
 
 void JobsList::removeFinishedJobs() {
   int status;
-  for(JobEntry& iter : jobs_vector) {
-    pid_t is_finished = waitpid(iter.getProcessID(), &status, WNOHANG);
+  for(JobEntry* iter : jobs_vector) {
+    pid_t is_finished = waitpid(iter->getProcessID(), &status, WNOHANG);
     if (WIFEXITED(status)) {
       cout << is_finished << endl;
       //killAllJobs();
@@ -683,14 +684,14 @@ void JobsList::removeFinishedJobs() {
     max_id=0;
   }
   else {
-    max_id=jobs_vector.back().getJobID();
+    max_id=jobs_vector.back()->getJobID();
   }
 }
 
 JobsList::JobEntry* JobsList::getJobById(int jobId) {
-  for(JobEntry& iter : jobs_vector) {
-    if(iter.getJobID() == jobId) {
-      return &iter;
+  for(JobEntry* iter : jobs_vector) {
+    if(iter->getJobID() == jobId) {
+      return iter;
     }
   }
 
@@ -698,16 +699,16 @@ JobsList::JobEntry* JobsList::getJobById(int jobId) {
 }
 
 void JobsList::removeJobById(int jobId) {
-  for(JobEntry& iter : jobs_vector) {
-    if(iter.getJobID() == jobId) {
-      jobs_vector.erase(std::vector<JobEntry>::iterator(&iter));
+  for(JobEntry* iter : jobs_vector) {
+    if(iter->getJobID() == jobId) {
+      //jobs_vector.erase(std::vector<JobEntry>::iterator(iter));  //TOFIX
     }
   }
   if (jobs_vector.empty()) {
     max_id = 0;
   }
   else {
-    max_id = jobs_vector.back().getJobID();
+    max_id = jobs_vector.back()->getJobID();
   }
 }
 
@@ -717,18 +718,18 @@ JobsList::JobEntry* JobsList::getLastJob(int* lastJobId) {
   }
   
   if(lastJobId) {
-    *lastJobId = jobs_vector.back().getJobID();
+    *lastJobId = jobs_vector.back()->getJobID();
   }
 
-  return &jobs_vector.back();
+  return jobs_vector.back();
 
 }
 
 JobsList::JobEntry* JobsList::getLastStoppedJob(int *jobId) {
   JobEntry* last_stopped_job = nullptr;
-  for(JobEntry& iter : jobs_vector) {
-    if(iter.isStopped()) {
-      last_stopped_job = &iter;
+  for(JobEntry* iter : jobs_vector) {
+    if(iter->isStopped()) {
+      last_stopped_job = iter;
     }
   }
 

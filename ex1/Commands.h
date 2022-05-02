@@ -50,7 +50,7 @@ class JobsList {
         time_t returnDiffTime() { return difftime(time(NULL), job_time); }
   };
  
-  std::vector<JobEntry> jobs_vector;
+  std::vector<JobEntry*> jobs_vector;
   int max_id;
  public:
   JobsList();

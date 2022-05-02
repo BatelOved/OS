@@ -38,7 +38,7 @@ class JobsList {
     
     public:
         JobEntry(int job_id, int process_id, bool is_stopped, Command* cmd) : job_id(job_id), 
-            process_id(process_id), is_stopped(is_stopped), BG(0), finished(0), cmd(cmd), job_time(time(NULL)) {}
+            process_id(process_id), is_stopped(is_stopped), BG(false), finished(false), cmd(cmd), job_time(time(NULL)) {}
 
         int getJobID() { return job_id; }
         pid_t getProcessID() { return process_id; }
@@ -46,23 +46,23 @@ class JobsList {
         void stopTheJob() { is_stopped=true; }
         void turnToBG() { BG=true; }
         void turnToFG() { BG=false; }
-        Command& getCommand() { return *cmd; }
+        Command* getCommand() { return cmd; }
         time_t returnDiffTime() { return difftime(time(NULL), job_time); }
   };
  
-  std::vector<JobEntry> jobs_vector;
+  std::vector<JobEntry*> jobs_vector;
   int max_id;
  public:
   JobsList();
   ~JobsList();
-  void addJob(Command* cmd, bool isStopped = false);
+  void addJob(Command* cmd, pid_t child_pid, bool isStopped = false);
   void printJobsList();
   void killAllJobs();
   void removeFinishedJobs();
   JobEntry * getJobById(int jobId);
   void removeJobById(int jobId);
   JobEntry * getLastJob(int* lastJobId);
-  JobEntry *getLastStoppedJob(int *jobId);
+  JobEntry *getLastStoppedJob(int *jobId = nullptr);
 };
 
 
@@ -162,9 +162,11 @@ class QuitCommand : public BuiltInCommand {
 
 //pipe
 class PipeCommand : public Command {
+  char* left_cmd;
+  char* right_cmd;
  public:
   PipeCommand(const char* cmd_line);
-  virtual ~PipeCommand() {}
+  virtual ~PipeCommand();
   void execute() override;
 };
 
@@ -201,12 +203,11 @@ class TouchCommand : public BuiltInCommand {
 class SmallShell {
  private:
   char* prompt;
-  JobsList jobs;
   char** prev_dir;
+  JobsList jobs;
 
   SmallShell();
  public:
-  void addJob(Command* cmd, bool isStopped = false);
   Command *CreateCommand(const char* cmd_line);
   SmallShell(SmallShell const&)      = delete; // disable copy ctor
   void operator=(SmallShell const&)  = delete; // disable = operator
@@ -217,10 +218,10 @@ class SmallShell {
     return instance;
   }
   JobsList& getJobsList();
-  ~SmallShell();
   void executeCommand(const char* cmd_line);
   char* getPrompt() const;
   char** getLastPwd();
+  ~SmallShell();
 };
 
 /***************************************** Externals command *****************************************/

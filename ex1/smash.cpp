@@ -5,6 +5,12 @@
 #include "Commands.h"
 #include "signals.h"
 
+
+#include <sys/types.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <time.h>
+
 int main(int argc, char* argv[]) {
     if(signal(SIGTSTP , ctrlZHandler)==SIG_ERR) {
         perror("smash error: failed to set ctrl-Z handler");
@@ -17,6 +23,7 @@ int main(int argc, char* argv[]) {
     }
 
     SmallShell& smash = SmallShell::getInstance();
+
     while(true) {
         std::cout << smash.getPrompt() << "> ";
         std::string cmd_line;

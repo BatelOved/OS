@@ -39,7 +39,7 @@ class JobsList {
     public:
         JobEntry(int job_id, int process_id, bool is_stopped, Command* cmd) : job_id(job_id), 
             process_id(process_id), is_stopped(is_stopped), BG(false), finished(false), cmd(cmd), job_time(time(NULL)) {}
-
+        ~JobEntry() { delete cmd; }
         int getJobID() { return job_id; }
         pid_t getProcessID() { return process_id; }
         bool isStopped() { return is_stopped; }
@@ -206,6 +206,9 @@ class SmallShell {
   char** prev_dir;
   JobsList jobs;
 
+  Command* current_cmd;
+  pid_t current_pid;
+
   SmallShell();
  public:
   Command *CreateCommand(const char* cmd_line);
@@ -217,6 +220,10 @@ class SmallShell {
     // Instantiated on first use.
     return instance;
   }
+  void updateCurrentCmd(Command* cmd) { this->current_cmd = cmd; }
+  void updateCurrentPid(pid_t pid) { this->current_pid = pid; }
+  Command* getCurrCmd() { return current_cmd; }
+  pid_t getCurrentPid() { return current_pid; }
   JobsList& getJobsList();
   void executeCommand(const char* cmd_line);
   char* getPrompt() const;

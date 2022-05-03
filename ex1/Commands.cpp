@@ -55,8 +55,11 @@ int _parseCommandLine(const char* cmd_line, char** args) {
 }
 
 void _freeArguments(char** args) {
+  if(!args) {
+    return;
+  }
   for (int i = 0; args[i]; i++) {
-    free(args[i]);
+    delete args[i];
   }
 }
 
@@ -120,6 +123,7 @@ void _removeBackgroundSign(char* cmd_line) {
 SmallShell::SmallShell(): prompt(new char[COMMAND_ARGS_MAX_LENGTH]), prev_dir(new char*[1]) {
   strcpy(this->prompt, "smash");
   *(this->prev_dir) = nullptr;
+  current_cmd = nullptr;
 }
 
 SmallShell::~SmallShell() {
@@ -191,10 +195,12 @@ Command* SmallShell::CreateCommand(const char* cmd_line) {
 
 void SmallShell::executeCommand(const char *cmd_line) {
   Command* cmd = CreateCommand(cmd_line);
+  this->current_cmd = cmd; //
+  this->jobs.removeFinishedJobs();
   cmd->execute();
-  //this->jobs.removeFinishedJobs();
   if (_isBackgroundComamnd(cmd_line) == false) {
     delete cmd;
+    this->current_cmd = nullptr;
   }
 }
 
@@ -218,7 +224,7 @@ Command::~Command() {
 }
 
 
-// Should add cases of failed waitpid and so on
+// Should add cases of failed waitpid and so on?
 
 
 /***************************************** Built-in commands *****************************************/
@@ -320,6 +326,7 @@ void JobsCommand::execute() {
 KillCommand::KillCommand(const char* cmd_line): BuiltInCommand(cmd_line) {}
 
 void KillCommand::execute() {
+  // Gets *job id* and sends a kill signal to the process
   char* args[COMMAND_MAX_ARGS+1];
   _parseCommandLine(this->getCmdLine(), args);
   SmallShell& smash = SmallShell::getInstance();
@@ -379,7 +386,6 @@ void KillCommand::execute() {
 
   if(signal == SIGKILL) {
     smash.getJobsList().removeJobById(to_kill->getJobID());
-    delete to_kill->getCommand();
   }
   if(signal == SIGSTOP) {
     to_kill->stopTheJob();
@@ -446,14 +452,13 @@ void ForegroundCommand::execute() {
     }
   }
 
-  JobsList::JobEntry copy = *curr_job;
-  jobs.removeJobById(copy.getJobID());
-  copy.turnToFG();
-
   int status;
-  if(waitpid(copy.getProcessID(), &status, WUNTRACED) != copy.getProcessID()) {
+  smash.updateCurrentCmd(curr_job->getCommand());
+  if(waitpid(curr_job->getProcessID(), &status, WUNTRACED) != curr_job->getProcessID()) {
     perror("smash error: waitpid failed");
   }
+
+  jobs.removeJobById(curr_job->getJobID());
 
   _freeArguments(args);
 }
@@ -540,8 +545,14 @@ void ExternalCommand::execute() {
 
   pid_t p = fork();
 
+  char* command_line = (char*)malloc(strlen(this->getCmdLine())+1);
+  strcpy(command_line, this->getCmdLine());
+  _removeBackgroundSign(command_line);
+
 	if (p == 0) {
-    const char* args[] = {"/bin/bash", "-c", this->getCmdLine(), NULL};
+    //Maybe it's better to free the memory of the "clean" address
+    smash.updateCurrentPid(getpid()); //
+    const char* args[] = {"/bin/bash", "-c", command_line, NULL};
     execv(args[0], (char**)args);
 	}
   else {
@@ -549,7 +560,6 @@ void ExternalCommand::execute() {
       smash.getJobsList().addJob(this, p);
     }
     else {
-      cout << "hi" << endl;
       wait(NULL);
     }
   }
@@ -632,12 +642,20 @@ void TouchCommand::execute() {
 
 /***************************************** JobsList methods *****************************************/
 
-JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), max_id(0) {}
+JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), max_id(1) {}
 
 JobsList::~JobsList() {}
 
 void JobsList::addJob(Command* cmd, pid_t child_pid, bool isStopped) {
-    jobs_vector.push_back(new JobEntry(this->max_id++, child_pid, isStopped, cmd));
+    SmallShell& smash = SmallShell::getInstance();
+    int new_job_index = this->max_id++;
+    cout<< "child_pid" << child_pid;
+    JobEntry* new_job = new JobEntry(new_job_index, child_pid, isStopped, cmd);
+
+    jobs_vector.push_back(new_job);
+    if(isStopped) {
+      smash.executeCommand((string("kill -") + to_string(SIGSTOP) + string(" ") + to_string(new_job_index)).c_str());
+    }
 }
 
 void JobsList::printJobsList() {
@@ -665,7 +683,7 @@ void JobsList::killAllJobs() {
     }
   }
   jobs_vector.clear();
-  max_id=0;
+  max_id=1;
 }
 
 void JobsList::removeFinishedJobs() {
@@ -673,7 +691,8 @@ void JobsList::removeFinishedJobs() {
   for(JobEntry* iter : jobs_vector) {
     pid_t is_finished = waitpid(iter->getProcessID(), &status, WNOHANG);
     if (WIFEXITED(status)) {
-      cout << is_finished << endl;
+      //cout << is_finished << endl;
+      this->removeJobById(iter->getJobID());
       //killAllJobs();
       //delete iter->getCommand();
       //jobs_vector.erase(iter);
@@ -681,7 +700,7 @@ void JobsList::removeFinishedJobs() {
   }
 
   if(jobs_vector.empty()) {
-    max_id=0;
+    max_id=1;
   }
   else {
     max_id=jobs_vector.back()->getJobID();
@@ -699,13 +718,22 @@ JobsList::JobEntry* JobsList::getJobById(int jobId) {
 }
 
 void JobsList::removeJobById(int jobId) {
-  for(JobEntry* iter : jobs_vector) {
-    if(iter->getJobID() == jobId) {
+  // for(JobEntry* iter : jobs_vector) {
+  //   if(iter->getJobID() == jobId) {
+  //     jobs_vector.erase(std::vector<JobEntry*>::iterator(iter));
+  //     //jobs_vector.erase(std::vector<JobEntry>::iterator(iter));  //TOFIX
+  //   }
+  // }
+  for(std::vector<JobEntry*>::iterator iter=jobs_vector.begin(); iter!=jobs_vector.end();iter++) {
+    if((*iter)->getJobID() == jobId) {
+      jobs_vector.erase(iter);
+      delete *iter; //Might be a problem
+      break;
       //jobs_vector.erase(std::vector<JobEntry>::iterator(iter));  //TOFIX
     }
   }
   if (jobs_vector.empty()) {
-    max_id = 0;
+    max_id = 1;
   }
   else {
     max_id = jobs_vector.back()->getJobID();

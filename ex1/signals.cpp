@@ -15,10 +15,7 @@ void ctrlZHandler(int sig_num) {
   pid_t p = fork();
 
 	if (p == 0) {
-    smash.getJobsList().printJobsList();
-    smash.getJobsList().addJob(smash.CreateCommand("sleep"), getpid());
-    int x = 5;
-    //smash.executeCommand((string("kill -") + to_string(SIGSTOP) + string(" ") + to_string(getpid())).c_str());
+    smash.getJobsList().addJob(smash.getCurrCmd(), smash.getCurrentPid(), true);
 
     setpgrp();
 	}

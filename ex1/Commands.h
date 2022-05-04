@@ -10,6 +10,7 @@ class Command {
   
   char* cmd_line;
   time_t last_start_point;
+  bool bg_cmd;
 
  public:
   
@@ -20,6 +21,8 @@ class Command {
   const char* getCmdLine() { return this->cmd_line; }
   time_t getLastStartPoint() { return this->last_start_point; }
   void setLastStartPoint() { last_start_point = time(NULL); }
+  void setBgCmd() { bg_cmd = true; }
+  bool getBgCmd() { return bg_cmd; }
   //virtual void prepare();
   //virtual void cleanup();
 };
@@ -183,9 +186,12 @@ class PipeCommand : public Command {
 
 //IO
 class RedirectionCommand : public Command {
+  char* command;
+  char* output_file;
+  char* io_operator;
  public:
   explicit RedirectionCommand(const char* cmd_line);
-  virtual ~RedirectionCommand() {}
+  virtual ~RedirectionCommand();
   void execute() override;
   //void prepare() override;
   //void cleanup() override;

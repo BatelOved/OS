@@ -5,9 +5,12 @@
 #include <sstream>
 #include <sys/wait.h>
 #include <iomanip>
-#include "Commands.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <time.h>
 #include <utime.h>
+#include "Commands.h"
 
 
 using namespace std;
@@ -87,7 +90,7 @@ bool _isIOCommand(const char* cmd_line) {
   bool flag = false;
 
   for (int i = 0; i < args_num; i++) {
-    if (!strcmp(args[i], ">") || !strcmp(args[i], "<") || !strcmp(args[i], ">>") || !strcmp(args[i], "<<")) {
+    if (!strcmp(args[i], ">") || !strcmp(args[i], ">>")) {
       flag = true;
     }
   }
@@ -132,9 +135,9 @@ SmallShell::SmallShell(): prompt(new char[COMMAND_ARGS_MAX_LENGTH]), prev_dir(ne
 
 SmallShell::~SmallShell() {
   if (this->prev_dir) {
-    delete[] *(this->prev_dir);
+    delete *(this->prev_dir);
   }
-  delete this->prev_dir;
+  delete[] this->prev_dir;
   delete[] this->prompt;
 }
 
@@ -152,9 +155,9 @@ Command* SmallShell::CreateCommand(const char* cmd_line) {
   if (_isPipeCommand(cmd_line)) {
     return new PipeCommand(cmd_line);
   }
-  // else if (_isIOCommand(cmd_line)) {
-  //   return new RedirectionCommand(cmd_line);
-  // }
+  else if (_isIOCommand(cmd_line)) {
+    return new RedirectionCommand(cmd_line);
+  }
   else if (firstWord.compare("pwd") == 0) {
     return new GetCurrDirCommand(cmd_line);
   }
@@ -198,12 +201,12 @@ Command* SmallShell::CreateCommand(const char* cmd_line) {
 }
 
 void SmallShell::executeCommand(const char *cmd_line) {
-  Command* cmd = CreateCommand(cmd_line);
-  //this->current_cmd = cmd; //
   this->jobs.removeFinishedJobs();
+  Command* cmd = CreateCommand(cmd_line);
+
   cmd->execute();
 
-  if (_isBackgroundCommand(cmd_line) == false) {
+  if (cmd->getBgCmd() == false) {
     delete cmd;
     this->current_cmd = nullptr;
   }
@@ -222,6 +225,7 @@ char** SmallShell::getLastPwd() {
 Command::Command(const char* cmd_line): last_start_point(time(NULL)) {
   this->cmd_line = new char[strlen(cmd_line)+1];
   strcpy(this->cmd_line, cmd_line);
+  this->bg_cmd = false;
 }
 
 Command::~Command() {
@@ -578,7 +582,7 @@ void ExternalCommand::execute() {
       smash.getJobsList().addJob(this, p);
     }
     else {
-      smash.updateCurrentPid(p); //
+      smash.updateCurrentPid(p);
       smash.updateCurrentCmd(this);
       waitpid(p, nullptr, WUNTRACED);
       smash.updateCurrentPid(0);
@@ -597,7 +601,6 @@ PipeCommand::PipeCommand(const char* cmd_line): Command(cmd_line), left_cmd(new 
   _trim(str);
 
   size_t op1 = str.find("|&");
-  size_t op2 = str.find("|");
 
   if (op1 != std::string::npos) {
     strcpy(pipe_operator, "|&");
@@ -610,9 +613,8 @@ PipeCommand::PipeCommand(const char* cmd_line): Command(cmd_line), left_cmd(new 
   strcpy(left_cmd, str.substr(0, left_cmd_end).c_str());
 
   const string sub_str(str.substr(left_cmd_end + strlen(pipe_operator)));
-  _trim(sub_str);
 
-  strcpy(right_cmd, sub_str.c_str());
+  strcpy(right_cmd, _trim(sub_str).c_str());
 }
 
 PipeCommand::~PipeCommand() {
@@ -626,9 +628,12 @@ void PipeCommand::execute() {
   int fd[2];
   pipe(fd);
 
-  if (fork() == 0) {
+  pid_t p1;
+  pid_t p2;
+
+  if ((p1 = fork()) == 0) {
     // first child
-    if (strcmp(this->pipe_operator, "|&") == 0) {   // Doen't work! :(
+    if (strcmp(this->pipe_operator, "|&") == 0) {
       dup2(fd[1],2);
     }
     else if (strcmp(this->pipe_operator, "|") == 0){
@@ -637,27 +642,74 @@ void PipeCommand::execute() {
     close(fd[0]);
     close(fd[1]);
     smash.executeCommand(this->left_cmd);
+    exit(0);
     setpgrp();
   }
-  if (fork() == 0) {
+  if ((p2 = fork()) == 0) {
     // second child 
     dup2(fd[0],0);
     close(fd[0]);
     close(fd[1]);
     smash.executeCommand(this->right_cmd);
+    exit(0);
     setpgrp();
   }
   close(fd[0]);
   close(fd[1]);
+  waitpid(p1, nullptr, 0);
+  waitpid(p2, nullptr, 0);
 }
 
 //IO
-RedirectionCommand::RedirectionCommand(const char* cmd_line): Command(cmd_line) {
+RedirectionCommand::RedirectionCommand(const char* cmd_line): Command(cmd_line), command(new char[COMMAND_ARGS_MAX_LENGTH]),
+                                            output_file(new char[COMMAND_ARGS_MAX_LENGTH]), io_operator(new char[3]) {
+  const string str(cmd_line);
+  _trim(str);
 
+  size_t op1 = str.find(">>");
+
+  if (op1 != std::string::npos) {
+    strcpy(io_operator, ">>");
+  }
+  else {
+    strcpy(io_operator, ">");
+  }
+
+  size_t command_end = str.find_first_of(io_operator);
+  strcpy(command, str.substr(0, command_end).c_str());
+
+  const string sub_str(str.substr(command_end + strlen(io_operator)));
+
+  strcpy(output_file, _trim(sub_str).c_str());
 }
 
 void RedirectionCommand::execute() {
+  SmallShell& smash = SmallShell::getInstance();
 
+  pid_t pid = fork();
+
+  if (pid == 0) {
+    close(1);
+    if (strcmp(this->io_operator, ">>") == 0) {
+      open(this->output_file, O_CREAT | O_WRONLY | O_APPEND);
+    }
+    else if (strcmp(this->io_operator, ">") == 0){
+      open(this->output_file, O_CREAT | O_WRONLY);
+    }
+    smash.executeCommand(this->command);
+    close(1);
+    exit(0);
+    setpgrp();
+  }
+  else {
+    waitpid(pid, nullptr, 0);
+  }
+}
+
+RedirectionCommand::~RedirectionCommand() {
+  delete[] command;
+  delete[] output_file;
+  delete[] io_operator;
 }
 
 //tail
@@ -681,13 +733,12 @@ JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), max_id(1) {}
 JobsList::~JobsList() {}
 
 void JobsList::addJob(Command* cmd, pid_t child_pid, bool isStopped) {
-    SmallShell& smash = SmallShell::getInstance();
-
     int new_job_index = this->max_id++;
   
     JobEntry* new_job = new JobEntry(new_job_index, child_pid, isStopped, cmd);
 
     jobs_vector.push_back(new_job);
+    cmd->setBgCmd();
 
     if(isStopped) {
       new_job->stopProcess();
@@ -725,7 +776,7 @@ void JobsList::killAllJobs() {
 void JobsList::removeFinishedJobs() {
   int status = -1;
   for(JobEntry* iter : jobs_vector) {
-    pid_t is_finished = waitpid(iter->getProcessID(), &status, WNOHANG);
+    waitpid(iter->getProcessID(), &status, WNOHANG);
     if (WIFEXITED(status)) {
       this->removeJobById(iter->getJobID());
     }

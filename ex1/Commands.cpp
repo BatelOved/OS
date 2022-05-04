@@ -691,13 +691,12 @@ void RedirectionCommand::execute() {
   if (pid == 0) {
     close(1);
     if (strcmp(this->io_operator, ">>") == 0) {
-      open(this->output_file, O_CREAT | O_WRONLY | O_APPEND);
+      open(this->output_file, O_CREAT | O_WRONLY | O_APPEND, S_IRWXU | S_IRWXG);
     }
     else if (strcmp(this->io_operator, ">") == 0){
-      open(this->output_file, O_CREAT | O_WRONLY);
+      open(this->output_file, O_CREAT | O_WRONLY, S_IRWXU  | S_IRWXG);
     }
     smash.executeCommand(this->command);
-    close(1);
     exit(0);
     setpgrp();
   }

@@ -124,6 +124,7 @@ SmallShell::SmallShell(): prompt(new char[COMMAND_ARGS_MAX_LENGTH]), prev_dir(ne
   strcpy(this->prompt, "smash");
   *(this->prev_dir) = nullptr;
   current_cmd = nullptr;
+  current_pid = 0;
 }
 
 SmallShell::~SmallShell() {
@@ -195,12 +196,12 @@ Command* SmallShell::CreateCommand(const char* cmd_line) {
 
 void SmallShell::executeCommand(const char *cmd_line) {
   Command* cmd = CreateCommand(cmd_line);
-  this->current_cmd = cmd; //
+  //this->current_cmd = cmd; //
   this->jobs.removeFinishedJobs();
   cmd->execute();
   if (_isBackgroundComamnd(cmd_line) == false) {
-    delete cmd;
-    this->current_cmd = nullptr;
+    //delete cmd;
+    //this->current_cmd = nullptr;
   }
 }
 
@@ -214,7 +215,7 @@ char** SmallShell::getLastPwd() {
 
 /***************************************** Command methods *****************************************/
 
-Command::Command(const char* cmd_line) {
+Command::Command(const char* cmd_line): last_start_point(time(NULL)) {
   this->cmd_line = new char[strlen(cmd_line)+1];
   strcpy(this->cmd_line, cmd_line);
 }
@@ -452,13 +453,19 @@ void ForegroundCommand::execute() {
     }
   }
 
+  curr_job->resumeProcess();
+
   int status;
   smash.updateCurrentCmd(curr_job->getCommand());
+  smash.updateCurrentPid(curr_job->getProcessID());
+  //Have to handel the case that the ctrl+z is occuring here
   if(waitpid(curr_job->getProcessID(), &status, WUNTRACED) != curr_job->getProcessID()) {
     perror("smash error: waitpid failed");
   }
+  smash.updateCurrentCmd(nullptr);
+  smash.updateCurrentPid(0);
 
-  jobs.removeJobById(curr_job->getJobID());
+  jobs.removeFinishedJobs();
 
   _freeArguments(args);
 }
@@ -477,7 +484,7 @@ void BackgroundCommand::execute() {
     _freeArguments(args);
     return;
   }
-
+  
   JobsList::JobEntry* curr_job;
   if(number_of_arguments == 1) {
     JobsList::JobEntry* last = jobs.getLastStoppedJob();
@@ -513,16 +520,19 @@ void BackgroundCommand::execute() {
     }
 
     curr_job = job_to_bg;
+    
   }
 
   cout<<curr_job->getCommand()->getCmdLine()<<" : "<<curr_job->getProcessID()<<endl;
-  if(kill(curr_job->getProcessID(), SIGCONT) == -1) {
-    perror("smash error: kill failed");
-    _freeArguments(args);
-    return;
+  if(curr_job->isStopped()) {
+    if(kill(curr_job->getProcessID(), SIGCONT) == -1) {
+      perror("smash error: kill failed");
+      _freeArguments(args);
+      return;
+    }
   }
-
-  curr_job->turnToBG();
+  //Problems with the timer
+  curr_job->resumeProcess();
   
   _freeArguments(args);
 }
@@ -551,7 +561,6 @@ void ExternalCommand::execute() {
 
 	if (p == 0) {
     //Maybe it's better to free the memory of the "clean" address
-    smash.updateCurrentPid(getpid()); //
     const char* args[] = {"/bin/bash", "-c", command_line, NULL};
     execv(args[0], (char**)args);
 	}
@@ -560,7 +569,11 @@ void ExternalCommand::execute() {
       smash.getJobsList().addJob(this, p);
     }
     else {
-      wait(NULL);
+      smash.updateCurrentPid(p); //
+      smash.updateCurrentCmd(this);
+      waitpid(p, nullptr, WUNTRACED);
+      smash.updateCurrentPid(0);
+      smash.updateCurrentCmd(nullptr);
     }
   }
 }
@@ -648,13 +661,15 @@ JobsList::~JobsList() {}
 
 void JobsList::addJob(Command* cmd, pid_t child_pid, bool isStopped) {
     SmallShell& smash = SmallShell::getInstance();
-    int new_job_index = this->max_id++;
-    cout<< "child_pid" << child_pid;
+    int new_job_index = (this->max_id)++;
+
+    //cout<< "child_pid" << child_pid;
     JobEntry* new_job = new JobEntry(new_job_index, child_pid, isStopped, cmd);
 
     jobs_vector.push_back(new_job);
+
     if(isStopped) {
-      smash.executeCommand((string("kill -") + to_string(SIGSTOP) + string(" ") + to_string(new_job_index)).c_str());
+      new_job->stopProcess();
     }
 }
 
@@ -703,7 +718,7 @@ void JobsList::removeFinishedJobs() {
     max_id=1;
   }
   else {
-    max_id=jobs_vector.back()->getJobID();
+    max_id=jobs_vector.back()->getJobID() + 1;
   }
 }
 
@@ -766,4 +781,32 @@ JobsList::JobEntry* JobsList::getLastStoppedJob(int *jobId) {
   }
 
   return last_stopped_job;
+}
+
+JobsList::JobEntry* JobsList::jobExistsByPID(pid_t pid) {
+  for(JobsList::JobEntry* iter:this->jobs_vector) {
+    if(iter->getProcessID() == pid) {
+      return iter;
+    }
+  }
+
+  return nullptr;
+}
+
+
+time_t JobsList::JobEntry::returnDiffTime() { 
+  if(this->is_stopped) {
+    return job_time;
+  }
+  return job_time + difftime(time(NULL), this->cmd->getLastStartPoint()); 
+}
+
+void JobsList::JobEntry::stopProcess() {
+  this->is_stopped = true;
+  job_time = job_time + difftime(time(NULL), this->cmd->getLastStartPoint());
+}
+
+void JobsList::JobEntry::resumeProcess() {
+  this->is_stopped = false;
+  this->cmd->setLastStartPoint();
 }

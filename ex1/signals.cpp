@@ -16,21 +16,31 @@ void ctrlZHandler(int sig_num) {
   }
   cout << "got ctrl-Z" << endl;
   
-  pid_t p = fork();
+  if(!smash.getJobsList().jobExistsByPID(smash.getCurrentPid())) {
+    smash.getJobsList().addJob(smash.getCurrCmd(), smash.getCurrentPid(), true);
+  }
+  else {
+    smash.getJobsList().jobExistsByPID(smash.getCurrentPid())->stopProcess();
+  }
+
+  kill(smash.getCurrentPid(), SIGSTOP);
+
+/*pid_t p = fork();
 
 	if (p == 0) {
 
     setpgrp();
 	}
   else {
+ 
     if(!smash.getJobsList().jobExistsByPID(p)) {
       smash.getJobsList().addJob(smash.getCurrCmd(), smash.getCurrentPid(), true);
     }
-    
+    cout<<"Before kill";
     kill(smash.getCurrentPid(), SIGSTOP);
-    
-    //waitpid(p, nullptr,WNOHANG);
-  }
+    cout<<"after kill";
+    waitpid(p, nullptr,WNOHANG);
+  }*/
 }
 
 void ctrlCHandler(int sig_num) {

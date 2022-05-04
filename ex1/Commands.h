@@ -9,6 +9,7 @@
 class Command {
   
   char* cmd_line;
+  time_t last_start_point;
 
  public:
   
@@ -17,6 +18,8 @@ class Command {
   virtual void execute() = 0;
   
   const char* getCmdLine() { return this->cmd_line; }
+  time_t getLastStartPoint() { return this->last_start_point; }
+  void setLastStartPoint() { last_start_point = time(NULL); }
   //virtual void prepare();
   //virtual void cleanup();
 };
@@ -34,11 +37,12 @@ class JobsList {
         bool BG;
         bool finished;
         Command* cmd;
+
         time_t job_time;
     
     public:
         JobEntry(int job_id, int process_id, bool is_stopped, Command* cmd) : job_id(job_id), 
-            process_id(process_id), is_stopped(is_stopped), BG(false), finished(false), cmd(cmd), job_time(time(NULL)) {}
+            process_id(process_id), is_stopped(is_stopped), BG(false), finished(false), cmd(cmd), job_time(0) {}
         ~JobEntry() { delete cmd; }
         int getJobID() { return job_id; }
         pid_t getProcessID() { return process_id; }
@@ -47,7 +51,9 @@ class JobsList {
         void turnToBG() { BG=true; }
         void turnToFG() { BG=false; }
         Command* getCommand() { return cmd; }
-        time_t returnDiffTime() { return difftime(time(NULL), job_time); }
+        time_t returnDiffTime();
+        void stopProcess();
+        void resumeProcess();
   };
  
   std::vector<JobEntry*> jobs_vector;
@@ -63,6 +69,9 @@ class JobsList {
   void removeJobById(int jobId);
   JobEntry * getLastJob(int* lastJobId);
   JobEntry *getLastStoppedJob(int *jobId = nullptr);
+
+  JobsList::JobEntry* jobExistsByPID(pid_t pid);
+  
 };
 
 

@@ -15,7 +15,7 @@
 - quit
 
 ### Special commands:
-- Pipes and IO redirection commands (>, <, >>, <<, |, |&)
+- Pipes and IO redirection commands (>, >>, |, |&)
 - tail
 - touch
 - timeout

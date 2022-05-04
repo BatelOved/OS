@@ -173,6 +173,7 @@ class QuitCommand : public BuiltInCommand {
 class PipeCommand : public Command {
   char* left_cmd;
   char* right_cmd;
+  char* pipe_operator;
  public:
   PipeCommand(const char* cmd_line);
   virtual ~PipeCommand();
@@ -214,6 +215,7 @@ class SmallShell {
   char* prompt;
   char** prev_dir;
   JobsList jobs;
+  pid_t smash_pid;
 
   Command* current_cmd;
   pid_t current_pid;
@@ -233,6 +235,7 @@ class SmallShell {
   void updateCurrentPid(pid_t pid) { this->current_pid = pid; }
   Command* getCurrCmd() { return current_cmd; }
   pid_t getCurrentPid() { return current_pid; }
+  pid_t getSmashPid() { return smash_pid; }
   JobsList& getJobsList();
   void executeCommand(const char* cmd_line);
   char* getPrompt() const;

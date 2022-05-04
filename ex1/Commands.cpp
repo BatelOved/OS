@@ -124,6 +124,7 @@ SmallShell::SmallShell(): prompt(new char[COMMAND_ARGS_MAX_LENGTH]), prev_dir(ne
   strcpy(this->prompt, "smash");
   *(this->prev_dir) = nullptr;
   current_cmd = nullptr;
+  current_pid = 0;
 }
 
 SmallShell::~SmallShell() {
@@ -195,12 +196,12 @@ Command* SmallShell::CreateCommand(const char* cmd_line) {
 
 void SmallShell::executeCommand(const char *cmd_line) {
   Command* cmd = CreateCommand(cmd_line);
-  this->current_cmd = cmd; //
+  //this->current_cmd = cmd; //
   this->jobs.removeFinishedJobs();
   cmd->execute();
   if (_isBackgroundComamnd(cmd_line) == false) {
-    delete cmd;
-    this->current_cmd = nullptr;
+    //delete cmd;
+    //this->current_cmd = nullptr;
   }
 }
 
@@ -454,9 +455,13 @@ void ForegroundCommand::execute() {
 
   int status;
   smash.updateCurrentCmd(curr_job->getCommand());
+  smash.updateCurrentPid(curr_job->getProcessID());
+  //Have to handel the case that the ctrl+z is occuring here
   if(waitpid(curr_job->getProcessID(), &status, WUNTRACED) != curr_job->getProcessID()) {
     perror("smash error: waitpid failed");
   }
+  smash.updateCurrentCmd(nullptr);
+  smash.updateCurrentPid(0);
 
   jobs.removeJobById(curr_job->getJobID());
 
@@ -551,7 +556,6 @@ void ExternalCommand::execute() {
 
 	if (p == 0) {
     //Maybe it's better to free the memory of the "clean" address
-    smash.updateCurrentPid(getpid()); //
     const char* args[] = {"/bin/bash", "-c", command_line, NULL};
     execv(args[0], (char**)args);
 	}
@@ -560,7 +564,12 @@ void ExternalCommand::execute() {
       smash.getJobsList().addJob(this, p);
     }
     else {
-      wait(NULL);
+      smash.updateCurrentPid(p); //
+      smash.updateCurrentCmd(this);
+      //wait(nullptr);
+      waitpid(p, nullptr, WUNTRACED);
+      smash.updateCurrentPid(0);
+      smash.updateCurrentCmd(nullptr);
     }
   }
 }
@@ -648,14 +657,12 @@ JobsList::~JobsList() {}
 
 void JobsList::addJob(Command* cmd, pid_t child_pid, bool isStopped) {
     SmallShell& smash = SmallShell::getInstance();
-    int new_job_index = this->max_id++;
+    int new_job_index = (this->max_id)++;
+
     cout<< "child_pid" << child_pid;
     JobEntry* new_job = new JobEntry(new_job_index, child_pid, isStopped, cmd);
 
     jobs_vector.push_back(new_job);
-    if(isStopped) {
-      smash.executeCommand((string("kill -") + to_string(SIGSTOP) + string(" ") + to_string(new_job_index)).c_str());
-    }
 }
 
 void JobsList::printJobsList() {
@@ -703,7 +710,7 @@ void JobsList::removeFinishedJobs() {
     max_id=1;
   }
   else {
-    max_id=jobs_vector.back()->getJobID();
+    max_id=jobs_vector.back()->getJobID() + 1;
   }
 }
 
@@ -766,4 +773,14 @@ JobsList::JobEntry* JobsList::getLastStoppedJob(int *jobId) {
   }
 
   return last_stopped_job;
+}
+
+bool JobsList::jobExistsByPID(pid_t pid) {
+  for(JobsList::JobEntry* iter:this->jobs_vector) {
+    if(iter->getProcessID() == pid) {
+      return true;
+    }
+  }
+
+  return false;
 }

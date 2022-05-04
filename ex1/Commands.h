@@ -63,6 +63,8 @@ class JobsList {
   void removeJobById(int jobId);
   JobEntry * getLastJob(int* lastJobId);
   JobEntry *getLastStoppedJob(int *jobId = nullptr);
+
+  bool jobExistsByPID(pid_t pid);
 };
 
 

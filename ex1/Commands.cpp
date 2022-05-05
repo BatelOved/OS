@@ -232,10 +232,6 @@ Command::~Command() {
   delete[] cmd_line;
 }
 
-
-// Should add cases of failed waitpid and so on?
-
-
 /***************************************** Built-in commands *****************************************/
 
 BuiltInCommand::BuiltInCommand(const char* cmd_line): Command(cmd_line) {}
@@ -615,6 +611,13 @@ PipeCommand::PipeCommand(const char* cmd_line): Command(cmd_line), left_cmd(new 
   const string sub_str(str.substr(left_cmd_end + strlen(pipe_operator)));
 
   strcpy(right_cmd, _trim(sub_str).c_str());
+
+  if (_isBackgroundCommand(left_cmd)) {
+    _removeBackgroundSign(left_cmd);
+  }
+  if (_isBackgroundCommand(right_cmd)) {
+    _removeBackgroundSign(right_cmd);
+  }
 }
 
 PipeCommand::~PipeCommand() {
@@ -712,10 +715,75 @@ RedirectionCommand::~RedirectionCommand() {
 }
 
 //tail
-TailCommand::TailCommand(const char* cmd_line) : BuiltInCommand(cmd_line) {}
+TailCommand::TailCommand(const char* cmd_line) : BuiltInCommand(cmd_line), path(nullptr), 
+                                              lines_rd(10), total_lines(0) {
+  char* args[COMMAND_MAX_ARGS+1];
+  int args_num = _parseCommandLine(this->getCmdLine(), args);
+
+  if (args_num >= 2) {
+    if (args_num == 3) {
+      path = new char[strlen(args[2]) + 1];
+      strcpy(path, args[2]);
+      lines_rd = abs(stoi(string(args[1])));
+    }
+    else {
+      path = new char[strlen(args[1]) + 1];
+      strcpy(path, args[1]);
+    }
+  }
+  
+  _freeArguments(args, args_num);
+
+  int fd = open(this->path, O_RDONLY);
+  char line[1];
+
+  while (read(fd, line, 1) > 0) {
+    if (strcmp(line, "\n") == 0) {
+      ++total_lines;
+    }
+  }
+
+  close(fd);
+
+  if (total_lines < lines_rd) {
+    lines_rd = total_lines;
+  }
+}
 
 void TailCommand::execute() {
+  char* args[COMMAND_MAX_ARGS+1];
+  int args_num = _parseCommandLine(this->getCmdLine(), args);
 
+  if (args_num > 3 || args_num < 2) {
+    cout << "smash error: tail: invalid arguments" << endl;
+  }
+
+  else if (args_num == 3 && stoi(string(args[1])) > 0) {
+    cout << "smash error: tail: invalid arguments" << endl;
+  }
+
+  else {
+    int fd = open(this->path, O_RDONLY);
+    char line[1];
+
+    int start_line = this->total_lines - this->lines_rd;
+    int line_iter = 0;
+
+    while (read(fd, line, 1) > 0) {
+      if (line_iter >= start_line) {
+        write(1, line, 1);
+      }
+      if (strcmp(line, "\n") == 0) {
+        ++line_iter;
+      }
+    }
+
+    close(fd);
+  }
+}
+
+TailCommand::~TailCommand() {
+  delete[] path;
 }
 
 //touch

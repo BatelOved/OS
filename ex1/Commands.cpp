@@ -10,6 +10,8 @@
 #include <fcntl.h>
 #include <time.h>
 #include <utime.h>
+#include <algorithm>
+#include <string>
 #include "Commands.h"
 
 
@@ -135,7 +137,7 @@ SmallShell::SmallShell(): prompt(new char[COMMAND_ARGS_MAX_LENGTH]), prev_dir(ne
 
 SmallShell::~SmallShell() {
   if (this->prev_dir) {
-    delete *(this->prev_dir);
+    delete[] *(this->prev_dir);
   }
   delete[] this->prev_dir;
   delete[] this->prompt;
@@ -756,29 +758,43 @@ void TailCommand::execute() {
 
   if (args_num > 3 || args_num < 2) {
     cout << "smash error: tail: invalid arguments" << endl;
+    _freeArguments(args, args_num);
+    return;
   }
 
   else if (args_num == 3 && stoi(string(args[1])) > 0) {
     cout << "smash error: tail: invalid arguments" << endl;
+    _freeArguments(args, args_num);
+    return;
   }
 
-  else {
-    int fd = open(this->path, O_RDONLY);
-    char line[1];
+  _freeArguments(args, args_num);
 
-    int start_line = this->total_lines - this->lines_rd;
-    int line_iter = 0;
+  int fd = open(this->path, O_RDONLY);
+  if (fd == -1) {
+    perror("smash error: tail");
+    return;
+  }
+  char line[1];
 
-    while (read(fd, line, 1) > 0) {
-      if (line_iter >= start_line) {
-        write(1, line, 1);
-      }
-      if (strcmp(line, "\n") == 0) {
-        ++line_iter;
+  int start_line = this->total_lines - this->lines_rd;
+  int line_iter = 0;
+
+  while (read(fd, line, 1) > 0) {
+    if (line_iter >= start_line) {
+      if (write(1, line, 1) == -1) {
+        perror("smash error: tail");
+        return;
       }
     }
+    if (strcmp(line, "\n") == 0) {
+      ++line_iter;
+    }
+  }
 
-    close(fd);
+  if (close(fd) == -1) {
+    perror("smash error: tail");
+    return;
   }
 }
 
@@ -787,10 +803,60 @@ TailCommand::~TailCommand() {
 }
 
 //touch
-TouchCommand::TouchCommand(const char* cmd_line) : BuiltInCommand(cmd_line) {}
+TouchCommand::TouchCommand(const char* cmd_line) : BuiltInCommand(cmd_line), file_name(nullptr), timestamp(time(NULL)) {
+  char* args[COMMAND_MAX_ARGS+1];
+  int args_num = _parseCommandLine(this->getCmdLine(), args);
+
+  if (args_num == 3) {
+    file_name = new char[strlen(args[1]) + 1];
+    strcpy(file_name, args[1]);
+
+    std::string time_str = string(args[2]);
+    std::replace(time_str.begin(), time_str.end(), ':', ' ');
+    char* time_args[COMMAND_MAX_ARGS+1];
+    int time_args_num = _parseCommandLine(time_str.c_str(), time_args);
+
+    tm ts;
+    ts.tm_sec = stoi(time_args[0]);
+    ts.tm_min = stoi(time_args[1]);
+    ts.tm_hour = stoi(time_args[2]);
+    ts.tm_mday = stoi(time_args[3]);
+    ts.tm_mon = stoi(time_args[4]) - 1;
+    ts.tm_year = stoi(time_args[5]) - 1900;
+    ts.tm_wday = 0;
+    ts.tm_yday = 0;
+    ts.tm_isdst = 0;
+    timestamp = mktime(&ts);
+
+    _freeArguments(time_args, time_args_num);
+  }
+
+  _freeArguments(args, args_num);
+}
 
 void TouchCommand::execute() {
+  char* args[COMMAND_MAX_ARGS+1];
+  int args_num = _parseCommandLine(this->getCmdLine(), args);
+  _freeArguments(args, args_num);
 
+  if (args_num != 3) {
+    cout << "smash error: touch: invalid arguments" << endl;
+    return;
+  }
+
+  utimbuf* ts = new utimbuf;
+  ts->actime = timestamp;
+  ts->modtime = timestamp;
+
+  if (utime(file_name, ts) == -1) {
+    perror("smash error: touch");
+  }
+
+  delete ts;
+}
+
+TouchCommand::~TouchCommand() {
+  delete[] file_name;
 }
 
 /***************************************** JobsList methods *****************************************/

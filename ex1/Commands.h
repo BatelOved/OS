@@ -200,9 +200,12 @@ class RedirectionCommand : public Command {
 
 //tail
 class TailCommand : public BuiltInCommand {
+  char* path;
+  int lines_rd;
+  int total_lines;
  public:
   TailCommand(const char* cmd_line);
-  virtual ~TailCommand() {}
+  virtual ~TailCommand();
   void execute() override;
 };
 

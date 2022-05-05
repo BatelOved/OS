@@ -212,9 +212,11 @@ class TailCommand : public BuiltInCommand {
 
 //touch
 class TouchCommand : public BuiltInCommand {
+  char* file_name;
+  time_t timestamp;
  public:
   TouchCommand(const char* cmd_line);
-  virtual ~TouchCommand() {}
+  virtual ~TouchCommand();
   void execute() override;
 };
 

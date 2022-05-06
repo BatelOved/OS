@@ -8,13 +8,13 @@
 using namespace std;
 
 void ctrlZHandler(int sig_num) {
+  cout << "smash: got ctrl-Z" << endl;
 
   SmallShell& smash = SmallShell::getInstance();
 
   if(smash.getCurrentPid() == 0) {
     return;
   }
-  cout << "got ctrl-Z" << endl;
   
   if(!smash.getJobsList().jobExistsByPID(smash.getCurrentPid())) {
     smash.getJobsList().addJob(smash.getCurrCmd(), smash.getCurrentPid(), true);
@@ -23,9 +23,12 @@ void ctrlZHandler(int sig_num) {
     smash.getJobsList().jobExistsByPID(smash.getCurrentPid())->stopProcess();
   }
 
-  kill(smash.getCurrentPid(), SIGSTOP);
+  int res = kill(smash.getCurrentPid(), SIGSTOP);
+  if(res == -1) {
+    perror("smash error: kill failed");
+  }
 
-  cout << "smash: process "<<smash.getCurrentPid()<<" was stopped";
+  cout << "smash: process "<<smash.getCurrentPid()<<" was stopped"<< std::endl;
 /*pid_t p = fork();
 
 	if (p == 0) {
@@ -45,7 +48,7 @@ void ctrlZHandler(int sig_num) {
 }
 
 void ctrlCHandler(int sig_num) {
-  cout << "got ctrl-C" << endl;
+  cout << "smash: got ctrl-C" << endl;
 
   SmallShell& smash = SmallShell::getInstance();
 
@@ -53,13 +56,22 @@ void ctrlCHandler(int sig_num) {
     return;
   }
 
-  if(smash.getJobsList().jobExistsByPID(smash.getCurrentPid())) {
-    smash.getJobsList().removeJobById(smash.getJobsList().jobExistsByPID(smash.getCurrentPid())->getJobID());
+  //if(smash.getJobsList().jobExistsByPID(smash.getCurrentPid())) {
+  //  smash.getJobsList().removeJobById(smash.getJobsList().jobExistsByPID(smash.getCurrentPid())->getJobID());
+  //}
+
+  int res = kill(smash.getCurrentPid(), SIGKILL);
+  if(res == -1) {
+    perror("smash error: kill failed");
   }
 
-  kill(smash.getCurrentPid(), SIGKILL);
+  JobsList::JobEntry* job_to_kill = smash.getJobsList().jobExistsByPID(smash.getCurrentPid());
+  if(job_to_kill) {
+    //There is a problem. Probably with the case we take a bg command to the fg and kill
+    smash.getJobsList().removeJobById(job_to_kill->getJobID());
+  }
 
-  cout << "smash: process "<<smash.getCurrentPid()<<" was killed";
+  cout << "smash: process "<<smash.getCurrentPid()<<" was killed"<<std::endl;
 /*  pid_t p = fork();
 
 	if (p == 0) {
@@ -75,10 +87,11 @@ void ctrlCHandler(int sig_num) {
 void alarmHandler(int sig_num) {
   // TODO: Add your implementation
 
-  cout<<"smash: got an alarm";
+  cout<<"smash: got an alarm" << endl;
 
   SmallShell& smash = SmallShell::getInstance();
   
+  cout << "smash: " << smash.getCurrCmd() << " timed out!" << endl;
   /*
   search which command caused the alarm, send a SIGKILL to its process and print:
 smash: [command-line] timed out!

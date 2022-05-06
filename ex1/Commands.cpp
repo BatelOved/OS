@@ -194,7 +194,7 @@ Command* SmallShell::CreateCommand(const char* cmd_line) {
     return new TouchCommand(cmd_line);
   }
   else if (firstWord.compare("timeout") == 0) {
-    // TODO
+    return new TimeoutCommand(cmd_line);
   }
   else {
     return new ExternalCommand(cmd_line);
@@ -222,9 +222,28 @@ char** SmallShell::getLastPwd() {
   return this->prev_dir;
 }
 
+/***************************************** Timer methods *****************************************/
+
+time_t Timer::getTotalTime() {
+  if(is_running) {
+    return (this->total_time + (time(nullptr) - this->last_start));
+  }
+  return this->total_time;
+}
+
+void Timer::stopTimer() {
+  this->total_time = this->total_time + (time(nullptr) - this->last_start);
+  this->is_running = false;
+}
+
+void Timer::startTimer() {
+  this->last_start = time(nullptr);
+  this->is_running = true;
+}
+
 /***************************************** Command methods *****************************************/
 
-Command::Command(const char* cmd_line): last_start_point(time(NULL)) {
+Command::Command(const char* cmd_line): timer() {
   this->cmd_line = new char[strlen(cmd_line)+1];
   strcpy(this->cmd_line, cmd_line);
   this->bg_cmd = false;
@@ -288,12 +307,12 @@ void ChangeDirCommand::execute() {
   getcwd(curr, COMMAND_ARGS_MAX_LENGTH);
 
   if (args_num > 2) {
-    cout<<"smash error: cd: too many arguments"<<endl;
+    perror("smash error: cd: too many arguments");
   }
 
   else if (path && strcmp(path, "-") == 0) {
     if (!(*lastPwd)) {
-      cout<<"smash error: cd: OLDPWD not set"<<endl;
+      perror("smash error: cd: OLDPWD not set");
     }
     else {
       if (chdir(*lastPwd) < 0) {
@@ -550,7 +569,14 @@ QuitCommand::QuitCommand(const char* cmd_line): BuiltInCommand(cmd_line) {}
 
 void QuitCommand::execute() {
   SmallShell& smash = SmallShell::getInstance();
-  smash.getJobsList().killAllJobs();
+
+  char* args[COMMAND_MAX_ARGS+1];
+  _parseCommandLine(this->getCmdLine(), args);
+
+  if(strcmp(args[1], "kill") == 0) {
+    smash.getJobsList().killAllJobs();
+  }
+
   kill(getpid(),SIGKILL);
 }
 
@@ -571,6 +597,7 @@ void ExternalCommand::execute() {
   pid_t p = fork();
 
 	if (p == 0) {
+    setpgrp();
     //Maybe it's better to free the memory of the "clean" address
     const char* args[] = {"/bin/bash", "-c", command_line, NULL};
     execv(args[0], (char**)args);
@@ -638,6 +665,7 @@ void PipeCommand::execute() {
 
   if ((p1 = fork()) == 0) {
     // first child
+    setpgrp();
     if (strcmp(this->pipe_operator, "|&") == 0) {
       dup2(fd[1],2);
     }
@@ -648,16 +676,15 @@ void PipeCommand::execute() {
     close(fd[1]);
     smash.executeCommand(this->left_cmd);
     exit(0);
-    setpgrp();
   }
   if ((p2 = fork()) == 0) {
     // second child 
+    setpgrp();
     dup2(fd[0],0);
     close(fd[0]);
     close(fd[1]);
     smash.executeCommand(this->right_cmd);
     exit(0);
-    setpgrp();
   }
   close(fd[0]);
   close(fd[1]);
@@ -694,6 +721,7 @@ void RedirectionCommand::execute() {
   pid_t pid = fork();
 
   if (pid == 0) {
+    setpgrp();
     close(1);
     if (strcmp(this->io_operator, ">>") == 0) {
       open(this->output_file, O_CREAT | O_WRONLY | O_APPEND, S_IRWXU | S_IRWXG);
@@ -703,7 +731,6 @@ void RedirectionCommand::execute() {
     }
     smash.executeCommand(this->command);
     exit(0);
-    setpgrp();
   }
   else {
     waitpid(pid, nullptr, 0);
@@ -859,6 +886,73 @@ TouchCommand::~TouchCommand() {
   delete[] file_name;
 }
 
+//timeout
+TimeoutCommand::TimeoutCommand(const char* cmd_line) : Command(cmd_line) {}
+
+void TimeoutCommand::execute() {
+  SmallShell& smash = SmallShell::getInstance();
+
+  char* args[COMMAND_MAX_ARGS+1];
+  int args_num = _parseCommandLine(this->getCmdLine(), args);
+
+  int seconds = stoi(args[1]);
+
+  size_t cut_point = string(this->getCmdLine()).find(args[2]);
+  string cmd_to_run = string(this->getCmdLine()).substr(cut_point);
+
+  _freeArguments(args, args_num);
+
+  if(_isBackgroundCommand(this->getCmdLine())) {
+    cmd_to_run.erase(cmd_to_run.find('&'), 1);
+
+    pid_t p = fork();
+    if(p < 0) { //Error
+      perror("smash error: fork failed");
+    }
+    else if(p == 0) { // Child
+      setpgrp();
+      char* cmd_to_execute = new char[cmd_to_run.length() + 1];
+      strcpy(cmd_to_execute, cmd_to_run.data());
+      const char* args[4] = {"/bin/bash", "-c", cmd_to_execute, nullptr};
+
+      execv(args[0], (char**)args);
+    }
+    else { // Parent
+      if(waitpid(p, nullptr, WNOHANG) != -1) {
+        smash.getJobsList().addJob(this, p);
+      }
+
+      alarm(seconds);
+    }
+  }
+  else {
+    pid_t p = fork();
+
+    if(p < 0) { // Error
+      perror("smash error: fork failed");
+    }
+    else if(p == 0) { // Child
+      setpgrp();
+      char* cmd_to_execute = new char[cmd_to_run.length() + 1];
+      strcpy(cmd_to_execute, cmd_to_run.data());
+      const char* args[4] = {"/bin/bash", "-c", cmd_to_execute, nullptr};
+
+      execv(args[0], (char**)args);
+    }
+    else { // Parent
+      smash.updateCurrentPid(p);
+      smash.updateCurrentCmd(this);
+
+      alarm(seconds);
+      waitpid(p, nullptr, WUNTRACED);
+
+      smash.updateCurrentPid(0);
+      smash.updateCurrentCmd(nullptr);
+    }
+  }
+}
+//We suggest you save all your timed commands in a list with a timestamp duration and pid.
+
 /***************************************** JobsList methods *****************************************/
 
 JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), max_id(1) {}
@@ -889,7 +983,11 @@ void JobsList::printJobsList() {
 }
 
 void JobsList::killAllJobs() {
-  cout<<"smash: killing all jobs"<<endl;
+  // if( this->jobs_vector.empty()) {
+  //   return;
+  // }
+
+  cout<<"smash: sending SIGKILL signal to "<< this->jobs_vector.size() << " jobs:" <<endl;
 
   for(JobEntry* iter : jobs_vector) {
     if(kill(iter->getProcessID(), SIGKILL) == -1) {
@@ -900,6 +998,7 @@ void JobsList::killAllJobs() {
       if(waitpid(iter->getProcessID(), &status, 0) != iter->getProcessID()) {
         cerr<<"error: waitpid failed";
       }
+      cout << iter->getProcessID() << ": " << iter->getCommand()->getCmdLine() << endl;
     }
   }
   jobs_vector.clear();
@@ -937,7 +1036,7 @@ void JobsList::removeJobById(int jobId) {
   for(std::vector<JobEntry*>::iterator iter=jobs_vector.begin(); iter!=jobs_vector.end();iter++) {
     if((*iter)->getJobID() == jobId) {
       jobs_vector.erase(iter);
-      delete *iter;
+      //delete *iter; // Problematic
       break;
     }
   }
@@ -945,7 +1044,7 @@ void JobsList::removeJobById(int jobId) {
     max_id = 1;
   }
   else {
-    max_id = jobs_vector.back()->getJobID();
+    max_id = jobs_vector.back()->getJobID() + 1;
   }
 }
 
@@ -992,15 +1091,15 @@ time_t JobsList::JobEntry::returnDiffTime() {
   if(this->is_stopped) {
     return job_time;
   }
-  return job_time + difftime(time(NULL), this->cmd->getLastStartPoint()); 
+  return this->cmd->getRunningTime();
 }
 
 void JobsList::JobEntry::stopProcess() {
   this->is_stopped = true;
-  job_time = job_time + difftime(time(NULL), this->cmd->getLastStartPoint());
+  this->cmd->stopCommand();
 }
 
 void JobsList::JobEntry::resumeProcess() {
   this->is_stopped = false;
-  this->cmd->setLastStartPoint();
+  this->cmd->startCommand();
 }

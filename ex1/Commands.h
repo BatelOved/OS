@@ -6,11 +6,32 @@
 #define COMMAND_ARGS_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
 
+
+
+class Timer {
+  time_t total_time;
+  time_t last_start;
+
+  bool is_running;
+
+public:
+
+  Timer() : total_time(0) , last_start(time(nullptr)), is_running(true) {}
+  ~Timer() = default;
+
+  time_t getTotalTime();
+  void stopTimer();
+  void startTimer();
+};
+
+/***************************************** Command class *****************************************/
+
 class Command {
   
   char* cmd_line;
-  time_t last_start_point;
   bool bg_cmd;
+
+  Timer timer;
 
  public:
   
@@ -19,14 +40,14 @@ class Command {
   virtual void execute() = 0;
   
   const char* getCmdLine() { return this->cmd_line; }
-  time_t getLastStartPoint() { return this->last_start_point; }
-  void setLastStartPoint() { last_start_point = time(NULL); }
+  void stopCommand() { this->timer.stopTimer(); }
+  void startCommand() { this->timer.startTimer(); }
+  time_t getRunningTime() { return this->timer.getTotalTime(); }
   void setBgCmd() { bg_cmd = true; }
   bool getBgCmd() { return bg_cmd; }
   //virtual void prepare();
   //virtual void cleanup();
 };
-
 
 
 /***************************************** Jobs class *****************************************/
@@ -217,6 +238,15 @@ class TouchCommand : public BuiltInCommand {
  public:
   TouchCommand(const char* cmd_line);
   virtual ~TouchCommand();
+  void execute() override;
+};
+
+//timeout
+class TimeoutCommand : public Command {
+
+ public:
+  TimeoutCommand(const char* cmd_line);
+  virtual ~TimeoutCommand() {}
   void execute() override;
 };
 

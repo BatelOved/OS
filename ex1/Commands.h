@@ -81,16 +81,19 @@ class JobsList {
   };
  
   std::vector<JobEntry*> jobs_vector;
+  std::vector<JobEntry*> stopped_jobs_vector;
   int max_id;
  public:
   JobsList();
   ~JobsList();
   void addJob(Command* cmd, pid_t child_pid, bool isStopped = false);
+  void addJobToStoppedList(JobEntry* stopped_job);
   void printJobsList();
   void killAllJobs();
   void removeFinishedJobs();
   JobEntry * getJobById(int jobId);
   void removeJobById(int jobId);
+  void removeFromStoppedList(int jobId);
   JobEntry * getLastJob(int* lastJobId);
   JobEntry *getLastStoppedJob(int *jobId = nullptr);
 

@@ -16,11 +16,12 @@ void ctrlZHandler(int sig_num) {
     return;
   }
   
-  if(!smash.getJobsList().jobExistsByPID(smash.getCurrentPid())) {
+  JobsList::JobEntry* job_in_list = smash.getJobsList().jobExistsByPID(smash.getCurrentPid());
+  if(!job_in_list) {
     smash.getJobsList().addJob(smash.getCurrCmd(), smash.getCurrentPid(), true);
   }
   else {
-    smash.getJobsList().jobExistsByPID(smash.getCurrentPid())->stopProcess();
+    job_in_list->stopProcess();
   }
 
   int res = kill(smash.getCurrentPid(), SIGSTOP);

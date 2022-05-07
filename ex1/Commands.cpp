@@ -433,7 +433,7 @@ void ForegroundCommand::execute() {
   JobsList jobs = smash.getJobsList();
 
   if(args_num > 2) {
-    cerr<<"smash error: fg: invalid arguments";
+    cerr<<"smash error: fg: invalid arguments"<<endl;
     _freeArguments(args, args_num);
     return;
   }
@@ -727,7 +727,7 @@ void RedirectionCommand::execute() {
       open(this->output_file, O_CREAT | O_WRONLY | O_APPEND, S_IRWXU | S_IRWXG);
     }
     else if (strcmp(this->io_operator, ">") == 0){
-      open(this->output_file, O_CREAT | O_WRONLY, S_IRWXU  | S_IRWXG);
+      open(this->output_file, O_CREAT | O_WRONLY | O_TRUNC , S_IRWXU  | S_IRWXG);
     }
     smash.executeCommand(this->command);
     exit(0);
@@ -955,7 +955,7 @@ void TimeoutCommand::execute() {
 
 /***************************************** JobsList methods *****************************************/
 
-JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), max_id(1) {}
+JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), stopped_jobs_vector(vector<JobEntry*>()), max_id(1) {}
 
 JobsList::~JobsList() {}
 
@@ -1006,10 +1006,11 @@ void JobsList::killAllJobs() {
 }
 
 void JobsList::removeFinishedJobs() {
-  int status = -1;
   for(JobEntry* iter : jobs_vector) {
-    waitpid(iter->getProcessID(), &status, WNOHANG);
-    if (WIFEXITED(status)) {
+    pid_t status = waitpid(iter->getProcessID(), nullptr, WNOHANG);
+    //if (WIFEXITED(status)) {
+    //if(status == iter->getProcessID()) {
+    if(status!=0) {
       this->removeJobById(iter->getJobID());
     }
   }
@@ -1048,6 +1049,16 @@ void JobsList::removeJobById(int jobId) {
   }
 }
 
+void JobsList::removeFromStoppedList(int jobId) {
+  for(std::vector<JobEntry*>::iterator iter=stopped_jobs_vector.begin(); iter!=stopped_jobs_vector.end();iter++) {
+    if((*iter)->getJobID() == jobId) {
+      stopped_jobs_vector.erase(iter);
+      //delete *iter; // Problematic
+      break;
+    }
+  }
+}
+
 JobsList::JobEntry* JobsList::getLastJob(int* lastJobId) {
   if(jobs_vector.empty()) {
     return nullptr;
@@ -1063,11 +1074,12 @@ JobsList::JobEntry* JobsList::getLastJob(int* lastJobId) {
 
 JobsList::JobEntry* JobsList::getLastStoppedJob(int *jobId) {
   JobEntry* last_stopped_job = nullptr;
-  for(JobEntry* iter : jobs_vector) {
-    if(iter->isStopped()) {
-      last_stopped_job = iter;
-    }
+
+  if(this->stopped_jobs_vector.empty()) {
+    return nullptr;
   }
+  //Have a problem here with finding the last stopped job
+  last_stopped_job = this->stopped_jobs_vector.back();
 
   if(last_stopped_job && jobId) {
     *jobId = last_stopped_job->getJobID();
@@ -1095,11 +1107,26 @@ time_t JobsList::JobEntry::returnDiffTime() {
 }
 
 void JobsList::JobEntry::stopProcess() {
+  SmallShell& smash = SmallShell::getInstance();
+
   this->is_stopped = true;
   this->cmd->stopCommand();
+    
+  smash.getJobsList().addJobToStoppedList(this);
+
 }
 
 void JobsList::JobEntry::resumeProcess() {
+  SmallShell& smash = SmallShell::getInstance();
+  
+  smash.getJobsList().removeFromStoppedList(this->job_id);
+
   this->is_stopped = false;
   this->cmd->startCommand();
+}
+
+void JobsList::addJobToStoppedList(JobEntry* stopped_job) {
+  if(stopped_job) {
+    this->stopped_jobs_vector.push_back(stopped_job);
+  }
 }

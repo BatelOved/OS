@@ -128,7 +128,7 @@ bool _argIsACorrectNum(const char* argument) {
   if(argument[0] == '-') {
     ++argument;
   }
-  for(size_t i=1; i<strlen(argument); i++) {
+  for(size_t i=0; i<strlen(argument); i++) {
     if(argument[i]<'0' || argument[i]>'9') {
       return false;
     }
@@ -329,16 +329,18 @@ void ChangeDirCommand::execute() {
   getcwd(curr, COMMAND_ARGS_MAX_LENGTH);
 
   if (args_num > 2) {
-    perror("smash error: cd: too many arguments");
+    cerr << "smash error: cd: too many arguments" << endl;
   }
 
   else if (path && strcmp(path, "-") == 0) {
     if (!(*lastPwd)) {
-      perror("smash error: cd: OLDPWD not set");
+      //perror("smash error: cd: OLDPWD not set");
+      cerr << "smash error: cd: OLDPWD not set" << endl;
     }
     else {
       if (chdir(*lastPwd) < 0) {
-        perror("smash error: cd");
+        //perror("smash error: cd");
+        perror("smash error: chdir");// Changed from cd because of the test. is it ok?
       }
       else {
         strcpy(*lastPwd, curr);
@@ -348,7 +350,8 @@ void ChangeDirCommand::execute() {
 
   else {
     if (path && chdir(path) < 0) {
-      perror("smash error: cd");
+      //perror("smash error: cd");
+      perror("smash error: chdir");// Changed from cd because of the test. is it ok?
     }
     else {
       if (!(*lastPwd)) {
@@ -384,7 +387,7 @@ void KillCommand::execute() {
   char* first_param = args[1];
   char* second_param = args[2];
 
-  if(!first_param || !second_param) {
+  if(!first_param || !second_param || args_num != 3) {
     cerr<<"smash error: kill: invalid arguments"<<endl;
     _freeArguments(args, args_num);
     return;
@@ -395,28 +398,41 @@ void KillCommand::execute() {
     return;
   }//maybe we should check the number of aguments in createcommand function
 
-  unsigned int i;
-  for(i=1; i<strlen(first_param); i++) {
-    if(first_param[i]<'0' || first_param[i]>'9') {
-      cerr<<"smash error: kill: invalid arguments"<<endl;
-      _freeArguments(args, args_num);
-      return;
-    }
+  // unsigned int i;
+  // for(i=1; i<strlen(first_param); i++) {
+  //   if(first_param[i]<'0' || first_param[i]>'9') {
+  //     cerr<<"smash error: kill: invalid arguments"<<endl;
+  //     _freeArguments(args, args_num);
+  //     return;
+  //   }
+  // }
+
+  if(!_argIsACorrectNum(first_param)) {
+    cerr<<"smash error: kill: invalid arguments"<<endl;
+    _freeArguments(args, args_num);
+    return;
   }
 
-  for(i=0; i<strlen(second_param); i++) {
-    if(second_param[i]<'0' || second_param[i]>'9') {
-      cerr<<"smash error: kill: invalid arguments"<<endl;
-      _freeArguments(args, args_num);
-      return;
-    }
+  // for(i=0; i<strlen(second_param); i++) {
+  //   if(second_param[i]<'0' || second_param[i]>'9') {
+  //     cerr<<"smash error: kill: invalid arguments"<<endl;
+  //     _freeArguments(args, args_num);
+  //     return;
+  //   }
+  // }
+
+  if(!_argIsACorrectNum(second_param)) {
+    cerr<<"smash error: kill: invalid arguments"<<endl;
+    _freeArguments(args, args_num);
+    return;
   }
   //Should be splitted to the execute method
+  //Should check the number of the signal?
   int signal=stoi(string(first_param+1));//Should be checked for correction
   int job_id=stoi(string(second_param));
 
   JobsList::JobEntry* to_kill=jobs.getJobById(job_id);
-
+  
   if(!to_kill){
 		cerr << "smash error: kill: job-id " << job_id << " does not exist" << endl;
     _freeArguments(args, args_num);
@@ -472,14 +488,21 @@ void ForegroundCommand::execute() {
   }
   else { //The number of arguments is 2
     //Being used in some places, maybe it would be better in a seperate function
-    unsigned int i;
-    for(i=0; i<strlen(args[1]); i++) {
-      if(args[1][i]<'0' || args[1][i]>'9') {
-        cerr<<"smash error: fg: invalid arguments"<<endl;
-        _freeArguments(args, args_num);
-        return;
-      }
+    
+    if(!_argIsACorrectNum(args[1])) {
+      cerr<<"smash error: fg: invalid arguments"<<endl;
+      _freeArguments(args, args_num);
+      return;
     }
+    
+    // unsigned int i;
+    // for(i=0; i<strlen(args[1]); i++) {
+    //   if(args[1][i]<'0' || args[1][i]>'9') {
+    //     cerr<<"smash error: fg: invalid arguments"<<endl;
+    //     _freeArguments(args, args_num);
+    //     return;
+    //   }
+    // }
 
     int job_id = stoi(string(args[1]));
     JobsList::JobEntry* job_to_fg = jobs.getJobById(job_id);
@@ -513,8 +536,6 @@ void ForegroundCommand::execute() {
   smash.updateCurrentCmd(nullptr);
   smash.updateCurrentPid(0);
 
-  jobs.removeFinishedJobs();
-
   _freeArguments(args, args_num);
 }
 
@@ -545,14 +566,21 @@ void BackgroundCommand::execute() {
   }
   else { //The number of arguments is 2
     //Being used in some places, maybe it would be better in a seperate function
-    unsigned int i;
-    for(i=0; i<strlen(args[1]); i++) {
-      if(args[1][i]<'0' || args[1][i]>'9') {
-        cerr<<"smash error: bg: invalid arguments"<<endl;
-        _freeArguments(args, args_num);
-        return;
-      }
+    
+    if(!_argIsACorrectNum(args[1])) {
+      cerr<<"smash error: bg: invalid arguments"<<endl;
+      _freeArguments(args, args_num);
+      return;
     }
+
+    // unsigned int i;
+    // for(i=0; i<strlen(args[1]); i++) {
+    //   if(args[1][i]<'0' || args[1][i]>'9') {
+    //     cerr<<"smash error: bg: invalid arguments"<<endl;
+    //     _freeArguments(args, args_num);
+    //     return;
+    //   }
+    // }
 
     int job_id = stoi(string(args[1]));
     JobsList::JobEntry* job_to_bg = jobs.getJobById(job_id);
@@ -907,7 +935,7 @@ void TouchCommand::execute() {
   _freeArguments(args, args_num);
 
   if (args_num != 3) {
-    cout << "smash error: touch: invalid arguments" << endl;
+    cerr << "smash error: touch: invalid arguments" << endl;
     return;
   }
 
@@ -934,6 +962,10 @@ void TimeoutCommand::execute() {
 
   char* args[COMMAND_MAX_ARGS+1];
   int args_num = _parseCommandLine(this->getCmdLine(), args);
+
+  if(args_num < 3) {
+    return;
+  }
 
   unsigned int seconds = stoi(args[1]);
 
@@ -1058,12 +1090,12 @@ void JobsList::killAllJobs() {
 
   for(JobEntry* iter : jobs_vector) {
     if(kill(iter->getProcessID(), SIGKILL) == -1) {
-      cerr<<"error: kill signal failed"<<endl;
+      perror("error: kill failed"); //Maybe have to change to other string
     }
     else {
       int status;
       if(waitpid(iter->getProcessID(), &status, 0) != iter->getProcessID()) {
-        cerr<<"error: waitpid failed"<<endl;
+        perror("error: waitpid failed"); //Maybe have to change to other string
       }
       cout << iter->getProcessID() << ": " << iter->getCommand()->getCmdLine() << endl;
     }
@@ -1073,13 +1105,25 @@ void JobsList::killAllJobs() {
 }
 
 void JobsList::removeFinishedJobs() {
-  for(JobEntry* iter : jobs_vector) {
-    pid_t status = waitpid(iter->getProcessID(), nullptr, WNOHANG);
-    //if (WIFEXITED(status)) {
+  /*for(JobEntry* iter : jobs_vector) {
+    int status;
+    pid_t child = waitpid(iter->getProcessID(), &status, WNOHANG);
+    if ((WIFEXITED(status) || WIFSIGNALED(status)) && child > 0) {
     //if(status == iter->getProcessID()) {
-    if(status!=0) {
+    //if(status!=0) {
       this->removeJobById(iter->getJobID());
     }
+  }*/
+
+  int status;
+  pid_t child = waitpid(-1, &status, WNOHANG);
+
+  while((WIFEXITED(status) || WIFSIGNALED(status)) && child > 0) {
+    int jobId = (jobExistsByPID(child) ? jobExistsByPID(child)->getJobID() : 0);
+    if(jobId != 0) {
+      this->removeJobById(jobId);
+    }
+    child = waitpid(-1, &status, WNOHANG);
   }
 
   if(jobs_vector.empty()) {

@@ -93,14 +93,28 @@ void alarmHandler(int sig_num) {
 
   SmallShell& smash = SmallShell::getInstance();
 
+  smash.getJobsList().removeFinishedJobs();
+  
   TimeoutObject* curr = smash.getJobsList().getCurrentTimeout();
   if(!curr){
+    smash.getJobsList().continueNextAlarm();
     return;
   }
 
-  kill(curr->getPID(), SIGKILL);
+  
+  if(!smash.getJobsList().jobExistsByPID(curr->getPID())) {
+    smash.getJobsList().removeTimeoutObject(curr->getPID());
 
-  cout << "smash: " << curr->getCommand()->getCmdLine() << " timed out!" << endl;
+    smash.getJobsList().continueNextAlarm();
+    return;
+  }
+  
+  if(kill(curr->getPID(), SIGKILL) == -1) {
+    perror("smash error: kill failed");
+  }
+  else {
+    cout << "smash: " << curr->getCommand()->getCmdLine() << " timed out!" << endl;
+  }
 
   //Maybe it's already covered by the case of remove_finished_jobs
   JobsList::JobEntry* to_delete = smash.getJobsList().jobExistsByPID(curr->getPID());

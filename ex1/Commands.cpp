@@ -86,19 +86,8 @@ bool _isPipeCommand(const char* cmd_line) {
 }
 
 bool _isIOCommand(const char* cmd_line) {
-  char* args[COMMAND_MAX_ARGS+1];
-  int args_num = _parseCommandLine(cmd_line, args);
-
-  bool flag = false;
-
-  for (int i = 0; i < args_num; i++) {
-    if (!strcmp(args[i], ">") || !strcmp(args[i], ">>")) {
-      flag = true;
-    }
-  }
-
-  _freeArguments(args, args_num);
-  return flag;
+  const string str(cmd_line);
+  return (str.find(">>") == std::string::npos && str.find(">") == std::string::npos) ? false : true;
 }
 
 bool _isBackgroundCommand(const char* cmd_line) {
@@ -334,13 +323,11 @@ void ChangeDirCommand::execute() {
 
   else if (path && strcmp(path, "-") == 0) {
     if (!(*lastPwd)) {
-      //perror("smash error: cd: OLDPWD not set");
       cerr << "smash error: cd: OLDPWD not set" << endl;
     }
     else {
       if (chdir(*lastPwd) < 0) {
-        //perror("smash error: cd");
-        perror("smash error: chdir");// Changed from cd because of the test. is it ok?
+        perror("smash error: chdir failed");
       }
       else {
         strcpy(*lastPwd, curr);
@@ -350,8 +337,7 @@ void ChangeDirCommand::execute() {
 
   else {
     if (path && chdir(path) < 0) {
-      //perror("smash error: cd");
-      perror("smash error: chdir");// Changed from cd because of the test. is it ok?
+      perror("smash error: chdir failed");
     }
     else {
       if (!(*lastPwd)) {
@@ -398,28 +384,11 @@ void KillCommand::execute() {
     return;
   }//maybe we should check the number of aguments in createcommand function
 
-  // unsigned int i;
-  // for(i=1; i<strlen(first_param); i++) {
-  //   if(first_param[i]<'0' || first_param[i]>'9') {
-  //     cerr<<"smash error: kill: invalid arguments"<<endl;
-  //     _freeArguments(args, args_num);
-  //     return;
-  //   }
-  // }
-
   if(!_argIsACorrectNum(first_param)) {
     cerr<<"smash error: kill: invalid arguments"<<endl;
     _freeArguments(args, args_num);
     return;
   }
-
-  // for(i=0; i<strlen(second_param); i++) {
-  //   if(second_param[i]<'0' || second_param[i]>'9') {
-  //     cerr<<"smash error: kill: invalid arguments"<<endl;
-  //     _freeArguments(args, args_num);
-  //     return;
-  //   }
-  // }
 
   if(!_argIsACorrectNum(second_param)) {
     cerr<<"smash error: kill: invalid arguments"<<endl;
@@ -441,7 +410,7 @@ void KillCommand::execute() {
 
   pid_t pid_to_kill=to_kill->getProcessID();
   if(kill(pid_to_kill, signal) == -1) {
-    perror("smash error: kill failed"); //The error handling should be checked
+    cerr<<"smash error: kill: invalid arguments"<<endl;
     _freeArguments(args, args_num);
     return;
   }
@@ -494,15 +463,6 @@ void ForegroundCommand::execute() {
       _freeArguments(args, args_num);
       return;
     }
-    
-    // unsigned int i;
-    // for(i=0; i<strlen(args[1]); i++) {
-    //   if(args[1][i]<'0' || args[1][i]>'9') {
-    //     cerr<<"smash error: fg: invalid arguments"<<endl;
-    //     _freeArguments(args, args_num);
-    //     return;
-    //   }
-    // }
 
     int job_id = stoi(string(args[1]));
     JobsList::JobEntry* job_to_fg = jobs.getJobById(job_id);
@@ -518,7 +478,7 @@ void ForegroundCommand::execute() {
   cout<<curr_job->getCommand()->getCmdLine()<<" : "<<curr_job->getProcessID()<<endl;
   if(curr_job->isStopped()) {
     if(kill(curr_job->getProcessID(), SIGCONT) == -1) {
-      perror("smash error: kill failed");
+      perror("smash error: kill");
       _freeArguments(args, args_num);
       return;
     }
@@ -573,15 +533,6 @@ void BackgroundCommand::execute() {
       return;
     }
 
-    // unsigned int i;
-    // for(i=0; i<strlen(args[1]); i++) {
-    //   if(args[1][i]<'0' || args[1][i]>'9') {
-    //     cerr<<"smash error: bg: invalid arguments"<<endl;
-    //     _freeArguments(args, args_num);
-    //     return;
-    //   }
-    // }
-
     int job_id = stoi(string(args[1]));
     JobsList::JobEntry* job_to_bg = jobs.getJobById(job_id);
     if(!job_to_bg) {
@@ -603,7 +554,7 @@ void BackgroundCommand::execute() {
 
   if(curr_job->isStopped()) {
     if(kill(curr_job->getProcessID(), SIGCONT) == -1) {
-      perror("smash error: kill failed");
+      perror("smash error: kill");
       _freeArguments(args, args_num);
       return;
     }
@@ -675,9 +626,7 @@ PipeCommand::PipeCommand(const char* cmd_line): Command(cmd_line), left_cmd(new 
   const string str(cmd_line);
   _trim(str);
 
-  size_t op1 = str.find("|&");
-
-  if (op1 != std::string::npos) {
+  if (str.find("|&") != std::string::npos) {
     strcpy(pipe_operator, "|&");
   }
   else {
@@ -748,9 +697,7 @@ RedirectionCommand::RedirectionCommand(const char* cmd_line): Command(cmd_line),
   const string str(cmd_line);
   _trim(str);
 
-  size_t op1 = str.find(">>");
-
-  if (op1 != std::string::npos) {
+  if (str.find(">>") != std::string::npos) {
     strcpy(io_operator, ">>");
   }
   else {
@@ -768,20 +715,30 @@ RedirectionCommand::RedirectionCommand(const char* cmd_line): Command(cmd_line),
 void RedirectionCommand::execute() {
   SmallShell& smash = SmallShell::getInstance();
 
+  bool valid_cmd = true;
+
   pid_t pid = fork();
 
   if (pid == 0) {
     setpgrp();
     close(1);
     if (strcmp(this->io_operator, ">>") == 0) {
-      //open(this->output_file, O_CREAT | O_WRONLY | O_APPEND, S_IRWXU | S_IRWXG);
-      open(this->output_file, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
+      if (open(this->output_file, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR 
+                          | S_IWUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) == -1) {
+        valid_cmd = false;
+        perror("smash error: open failed");
+      }
     }
     else if (strcmp(this->io_operator, ">") == 0){
-      //open(this->output_file, O_CREAT | O_WRONLY | O_TRUNC , S_IRWXU  | S_IRWXG);
-      open(this->output_file, O_CREAT | O_WRONLY | O_TRUNC , S_IRUSR | S_IWUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
+      if (open(this->output_file, O_CREAT | O_WRONLY | O_TRUNC , S_IRUSR 
+                          | S_IWUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) == -1) {
+        valid_cmd = false;
+        perror("smash error: open failed");
+      }
     }
-    smash.executeCommand(this->command);
+    if (valid_cmd) {
+      smash.executeCommand(this->command);
+    }
     exit(0);
   }
   else {
@@ -797,67 +754,25 @@ RedirectionCommand::~RedirectionCommand() {
 
 //tail
 TailCommand::TailCommand(const char* cmd_line) : BuiltInCommand(cmd_line), path(nullptr), 
-                                              lines_rd(10), total_lines(1) {
-  char* args[COMMAND_MAX_ARGS+1];
-  int args_num = _parseCommandLine(this->getCmdLine(), args);
-
-  if (args_num >= 2) {
-    if (args_num == 3) {
-      if(!_argIsACorrectNum(args[1])) {
-        cerr<<"smash error: tail: invalid arguments"<<endl;
-        _freeArguments(args, args_num);
-        return;
-      }
-      path = new char[strlen(args[2]) + 1];
-      strcpy(path, args[2]);
-      lines_rd = abs(stoi(string(args[1])));
-    }
-    else {
-      path = new char[strlen(args[1]) + 1];
-      strcpy(path, args[1]);
-    }
-  }
-  
-  _freeArguments(args, args_num);
-
-  int fd = open(this->path, O_RDONLY);
-  char line[1];
-
-  while (read(fd, line, 1) > 0) {
-    if (strcmp(line, "\n") == 0) {
-      ++total_lines;
-    }
-  }
-  //Plaster for the case of a blank line at the end
-  if(strcmp(line, "\n") == 0) {
-    --total_lines;
-  }
-
-  close(fd);
-
-  if (total_lines < lines_rd) {
-    lines_rd = total_lines;
-  }
-}
+                                                                  lines_rd(10), total_lines(1) {}
 
 void TailCommand::execute() {
   char* args[COMMAND_MAX_ARGS+1];
   int args_num = _parseCommandLine(this->getCmdLine(), args);
 
-  if (args_num == 3) {
-    if(!_argIsACorrectNum(args[1])) {
-      cerr<<"smash error: tail: invalid arguments"<<endl;
-      _freeArguments(args, args_num);
-      return;
+  if (args_num == 2 || (args_num == 3 && _argIsACorrectNum(args[1]) && stoi(string(args[1])) <= 0)) {
+    if (args_num == 2) {
+      path = new char[strlen(args[1]) + 1];
+      strcpy(path, args[1]);
+    }
+    else {
+      path = new char[strlen(args[2]) + 1];
+      strcpy(path, args[2]);
+      lines_rd = abs(stoi(string(args[1])));
     }
   }
-  if (args_num > 3 || args_num < 2) {
-    cerr << "smash error: tail: invalid arguments" << endl;
-    _freeArguments(args, args_num);
-    return;
-  }
 
-  else if (args_num == 3 && stoi(string(args[1])) > 0) {
+  else {
     cerr << "smash error: tail: invalid arguments" << endl;
     _freeArguments(args, args_num);
     return;
@@ -867,15 +782,48 @@ void TailCommand::execute() {
 
   int fd = open(this->path, O_RDONLY);
   if (fd == -1) {
+    perror("smash error: open failed");
+    return;
+  }
+
+  char line[1];
+
+  ssize_t rd = 0;
+
+  while ((rd = read(fd, line, 1)) > 0) {
+    if (strcmp(line, "\n") == 0) {
+      ++total_lines;
+    }
+  }
+
+  if (rd == -1) {
+    perror("smash error: read failed");
+    return;
+  }
+
+  if(strcmp(line, "\n") == 0) {
+    --total_lines;
+  }
+
+  if (total_lines < lines_rd) {
+    lines_rd = total_lines;
+  }
+
+  if (close(fd) == -1) {
     perror("smash error: tail");
     return;
   }
-  char line[1];
 
   int start_line = this->total_lines - (this->lines_rd - 1);
   int line_iter = 1;
 
-  while (read(fd, line, 1) > 0) {
+  fd = open(this->path, O_RDONLY);
+  if (fd == -1) {
+    perror("smash error: open failed");
+    return;
+  }
+
+  while ((rd = read(fd, line, 1)) > 0) {
     if (line_iter >= start_line) {
       if (write(1, line, 1) == -1) {
         perror("smash error: tail");
@@ -885,6 +833,11 @@ void TailCommand::execute() {
     if (strcmp(line, "\n") == 0) {
       ++line_iter;
     }
+  }
+
+  if (rd == -1) {
+    perror("smash error: read failed");
+    return;
   }
 
   if (close(fd) == -1) {
@@ -944,7 +897,7 @@ void TouchCommand::execute() {
   ts->modtime = timestamp;
 
   if (utime(file_name, ts) == -1) {
-    perror("smash error: touch");
+    perror("smash error: utime failed");
   }
 
   delete ts;
@@ -963,7 +916,8 @@ void TimeoutCommand::execute() {
   char* args[COMMAND_MAX_ARGS+1];
   int args_num = _parseCommandLine(this->getCmdLine(), args);
 
-  if(args_num < 3) {
+  if (args_num < 3 || stoi(args[1]) < 0) {
+    cerr << "smash error: timeout: invalid arguments" << endl;
     return;
   }
 
@@ -1090,7 +1044,7 @@ void JobsList::killAllJobs() {
 
   for(JobEntry* iter : jobs_vector) {
     if(kill(iter->getProcessID(), SIGKILL) == -1) {
-      perror("error: kill failed"); //Maybe have to change to other string
+      perror("error: kill"); //Maybe have to change to other string
     }
     else {
       int status;

@@ -2,15 +2,37 @@
 #define SMASH_COMMAND_H_
 
 #include <vector>
+#include <list>
 
 #define COMMAND_ARGS_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
 
+
+
+class Timer {
+  time_t total_time;
+  time_t last_start;
+
+  bool is_running;
+
+public:
+
+  Timer() : total_time(0) , last_start(time(nullptr)), is_running(true) {}
+  ~Timer() = default;
+
+  time_t getTotalTime();
+  void stopTimer();
+  void startTimer();
+};
+
+/***************************************** Command class *****************************************/
+
 class Command {
   
   char* cmd_line;
-  time_t last_start_point;
   bool bg_cmd;
+
+  Timer timer;
 
  public:
   
@@ -19,15 +41,38 @@ class Command {
   virtual void execute() = 0;
   
   const char* getCmdLine() { return this->cmd_line; }
-  time_t getLastStartPoint() { return this->last_start_point; }
-  void setLastStartPoint() { last_start_point = time(NULL); }
+  void stopCommand() { this->timer.stopTimer(); }
+  void startCommand() { this->timer.startTimer(); }
+  time_t getRunningTime() { return this->timer.getTotalTime(); }
   void setBgCmd() { bg_cmd = true; }
   bool getBgCmd() { return bg_cmd; }
   //virtual void prepare();
   //virtual void cleanup();
 };
 
+/***************************************** TimeoutObject commands *****************************************/
 
+class TimeoutObject {
+  
+  pid_t pid;
+
+  pid_t start_counting_point;
+  time_t time_left;
+  time_t time_to_alarm;
+  Command* command;
+
+public:
+
+  TimeoutObject(pid_t pid, time_t time_to_alarm, Command* cmd) : pid(pid), start_counting_point(time(nullptr)),
+      time_left(time_to_alarm), time_to_alarm(time_to_alarm), command(cmd) {}
+  
+  ~TimeoutObject() = default;
+
+  pid_t getPID() { return pid; }
+  void updateTimeLeft();
+  time_t getTimeLeft() { return time_left; }
+  Command* getCommand() { return command; }
+};
 
 /***************************************** Jobs class *****************************************/
 
@@ -60,23 +105,32 @@ class JobsList {
   };
  
   std::vector<JobEntry*> jobs_vector;
+  std::vector<JobEntry*> stopped_jobs_vector;
+  std::list<TimeoutObject*> timeout_list;
+
   int max_id;
  public:
   JobsList();
   ~JobsList();
   void addJob(Command* cmd, pid_t child_pid, bool isStopped = false);
+  void addJobToStoppedList(JobEntry* stopped_job);
+  void addTimeoutObject(pid_t pid, time_t time_to_run, Command* cmd);
+
+  TimeoutObject* getCurrentTimeout();
+  void continueNextAlarm();
   void printJobsList();
   void killAllJobs();
   void removeFinishedJobs();
   JobEntry * getJobById(int jobId);
   void removeJobById(int jobId);
+  void removeTimeoutObject(pid_t pid);
+  void removeFromStoppedList(int jobId);
   JobEntry * getLastJob(int* lastJobId);
   JobEntry *getLastStoppedJob(int *jobId = nullptr);
 
   JobsList::JobEntry* jobExistsByPID(pid_t pid);
   
 };
-
 
 /***************************************** Built-in commands *****************************************/
 
@@ -220,6 +274,15 @@ class TouchCommand : public BuiltInCommand {
   void execute() override;
 };
 
+//timeout
+class TimeoutCommand : public Command {
+
+ public:
+  TimeoutCommand(const char* cmd_line);
+  virtual ~TimeoutCommand() {}
+  void execute() override;
+};
+
 /***************************************** SmallShell *****************************************/
 class SmallShell {
  private:
@@ -230,6 +293,9 @@ class SmallShell {
 
   Command* current_cmd;
   pid_t current_pid;
+
+  time_t alarm_start;
+  unsigned int last_alarm_time;
 
   SmallShell();
  public:
@@ -247,6 +313,9 @@ class SmallShell {
   Command* getCurrCmd() { return current_cmd; }
   pid_t getCurrentPid() { return current_pid; }
   pid_t getSmashPid() { return smash_pid; }
+  time_t getAlarmStart() { return alarm_start; }
+  void setAlarm(unsigned int seconds);
+  unsigned long getLastAlarmTime() { return last_alarm_time; }
   JobsList& getJobsList();
   void executeCommand(const char* cmd_line);
   char* getPrompt() const;

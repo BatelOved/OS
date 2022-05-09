@@ -86,13 +86,31 @@ void ctrlCHandler(int sig_num) {
 }
 
 void alarmHandler(int sig_num) {
-  // TODO: Add your implementation
+  // maybe we should work on a specific time at the first of the handler instead of checking
+  // every time and maybe creating a difference in the current time between jobs
 
   cout<<"smash: got an alarm" << endl;
 
   SmallShell& smash = SmallShell::getInstance();
-  
-  cout << "smash: " << smash.getCurrCmd() << " timed out!" << endl;
+
+  TimeoutObject* curr = smash.getJobsList().getCurrentTimeout();
+  if(!curr){
+    return;
+  }
+
+  kill(curr->getPID(), SIGKILL);
+
+  cout << "smash: " << curr->getCommand()->getCmdLine() << " timed out!" << endl;
+
+  //Maybe it's already covered by the case of remove_finished_jobs
+  JobsList::JobEntry* to_delete = smash.getJobsList().jobExistsByPID(curr->getPID());
+  smash.getJobsList().removeJobById(to_delete->getJobID());
+  smash.getJobsList().removeTimeoutObject(curr->getPID());
+
+  smash.getJobsList().continueNextAlarm();
+
+//Have to delete the object
+
   /*
   search which command caused the alarm, send a SIGKILL to its process and print:
 smash: [command-line] timed out!

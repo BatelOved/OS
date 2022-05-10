@@ -100,25 +100,32 @@ void alarmHandler(int sig_num) {
     smash.getJobsList().continueNextAlarm();
     return;
   }
-
   
-  if(!smash.getJobsList().jobExistsByPID(curr->getPID())) {
-    smash.getJobsList().removeTimeoutObject(curr->getPID());
-
-    smash.getJobsList().continueNextAlarm();
-    return;
+  if(waitpid(curr->getPID(),nullptr,WNOHANG) == 0) {
+    //Should add -1 case?
+    if(kill(curr->getPID(), SIGKILL) == -1) {
+      perror("smash error: kill failed");
+    }
+    else {
+      cout << "smash: " << curr->getCommand()->getCmdLine() << " timed out!" << endl;
+    }
   }
+
+  //if(!(smash.getJobsList().jobExistsByPID(curr->getPID()))) {
+  //  smash.getJobsList().removeTimeoutObject(curr->getPID());
+
+  //  smash.getJobsList().continueNextAlarm();
+  //  return;
+  //}
   
-  if(kill(curr->getPID(), SIGKILL) == -1) {
-    perror("smash error: kill failed");
-  }
-  else {
-    cout << "smash: " << curr->getCommand()->getCmdLine() << " timed out!" << endl;
-  }
-
   //Maybe it's already covered by the case of remove_finished_jobs
-  JobsList::JobEntry* to_delete = smash.getJobsList().jobExistsByPID(curr->getPID());
-  smash.getJobsList().removeJobById(to_delete->getJobID());
+  //JobsList::JobEntry* to_delete = smash.getJobsList().jobExistsByPID(curr->getPID());
+  //smash.getJobsList().removeJobById(to_delete->getJobID());
+  
+  if(smash.getJobsList().jobExistsByPID(curr->getPID())) {
+    JobsList::JobEntry* to_delete = smash.getJobsList().jobExistsByPID(curr->getPID());
+    smash.getJobsList().removeJobById(to_delete->getJobID());
+  }
   smash.getJobsList().removeTimeoutObject(curr->getPID());
 
   smash.getJobsList().continueNextAlarm();

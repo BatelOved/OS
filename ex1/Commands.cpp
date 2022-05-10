@@ -1099,6 +1099,14 @@ JobsList::JobEntry* JobsList::getJobById(int jobId) {
 }
 
 void JobsList::removeJobById(int jobId) {
+  //Remove timeout?
+  for(std::list<TimeoutObject*>::iterator t_o_iter=timeout_list.begin(); t_o_iter!=timeout_list.end();t_o_iter++) {
+    if(jobExistsByPID((*t_o_iter)->getPID())->getJobID() == jobId) {
+      timeout_list.erase(t_o_iter);
+      break;
+    }
+  }
+
   for(std::vector<JobEntry*>::iterator iter=jobs_vector.begin(); iter!=jobs_vector.end();iter++) {
     if((*iter)->getJobID() == jobId) {
       jobs_vector.erase(iter);
@@ -1130,12 +1138,30 @@ void JobsList::continueNextAlarm() {
   if(!nextTimeout) {
     return;
   }
+
+  //according to the tests
+  vector<pid_t> to_delete;
+
   for(std::list<TimeoutObject*>::iterator time_out_iterator=timeout_list.begin(); time_out_iterator!=timeout_list.end(); time_out_iterator++) {
+    if((*time_out_iterator)->getTimeLeft()<=0 && waitpid((*time_out_iterator)->getPID(), nullptr, WNOHANG) > 0) {
+      to_delete.push_back((*time_out_iterator)->getPID());
+      continue;
+    }
     if((*time_out_iterator)->getTimeLeft() < nextTimeout->getTimeLeft()) {
+      //according to the tests
       nextTimeout = (*time_out_iterator);
     }
   }
-  alarm(nextTimeout->getTimeLeft());
+
+  for(pid_t pid_to_delete : to_delete) {
+    this->removeTimeoutObject(pid_to_delete);
+  }
+  if(nextTimeout->getTimeLeft() <= 0) {
+    kill(getpid(), SIGALRM); //A plaster
+  }
+  else {
+    alarm(nextTimeout->getTimeLeft());
+  }
 }
 
 void JobsList::removeFromStoppedList(int jobId) {

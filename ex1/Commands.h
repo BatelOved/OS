@@ -8,12 +8,14 @@
 #define COMMAND_MAX_ARGS (20)
 
 
+/***************************************** Timer class *****************************************/
 
+// A class for counting the running time for each command
 class Timer {
-  time_t total_time;
-  time_t last_start;
+  time_t total_time; // The actual time that passed
+  time_t last_start; // The last time we started the timer
 
-  bool is_running;
+  bool is_running; // A flag for checking if the timer is running
 
 public:
 
@@ -30,8 +32,6 @@ public:
 class Command {
   
   char* cmd_line;
-  bool bg_cmd;
-
   Timer timer;
 
  public:
@@ -44,14 +44,11 @@ class Command {
   void stopCommand() { this->timer.stopTimer(); }
   void startCommand() { this->timer.startTimer(); }
   time_t getRunningTime() { return this->timer.getTotalTime(); }
-  void setBgCmd() { bg_cmd = true; }
-  bool getBgCmd() { return bg_cmd; }
-  //virtual void prepare();
-  //virtual void cleanup();
 };
 
 /***************************************** TimeoutObject commands *****************************************/
 
+// A class for managing the timeout commands in the correct order
 class TimeoutObject {
   
   pid_t pid;
@@ -59,6 +56,7 @@ class TimeoutObject {
   pid_t start_counting_point;
   time_t time_left;
   time_t time_to_alarm;
+
   Command* command;
 
 public:
@@ -69,9 +67,10 @@ public:
   ~TimeoutObject() = default;
 
   pid_t getPID() { return pid; }
-  void updateTimeLeft();
+  void updateTimeLeft(time_t current_time);
   time_t getTimeLeft() { return time_left; }
   Command* getCommand() { return command; }
+
 };
 
 /***************************************** Jobs class *****************************************/
@@ -81,23 +80,18 @@ class JobsList {
   class JobEntry {
         int job_id;
         pid_t process_id;
-        bool is_stopped;//Msybe enum for status will be more reasonable
-        bool BG;
-        bool finished;
+        bool is_stopped;
         Command* cmd;
 
         time_t job_time;
     
     public:
         JobEntry(int job_id, int process_id, bool is_stopped, Command* cmd) : job_id(job_id), 
-            process_id(process_id), is_stopped(is_stopped), BG(false), finished(false), cmd(cmd), job_time(0) {}
-        ~JobEntry() { delete cmd; }
+            process_id(process_id), is_stopped(is_stopped), cmd(cmd), job_time(0) {}
+        ~JobEntry() { }
         int getJobID() { return job_id; }
         pid_t getProcessID() { return process_id; }
         bool isStopped() { return is_stopped; }
-        void stopTheJob() { is_stopped=true; }
-        void turnToBG() { BG=true; }
-        void turnToFG() { BG=false; }
         Command* getCommand() { return cmd; }
         time_t returnDiffTime();
         void stopProcess();
@@ -109,6 +103,7 @@ class JobsList {
   std::list<TimeoutObject*> timeout_list;
 
   int max_id;
+
  public:
   JobsList();
   ~JobsList();
@@ -116,8 +111,12 @@ class JobsList {
   void addJobToStoppedList(JobEntry* stopped_job);
   void addTimeoutObject(pid_t pid, time_t time_to_run, Command* cmd);
 
-  TimeoutObject* getCurrentTimeout();
+  // Sends the timeout that caused the alarm signal
+  TimeoutObject* getCurrentTimeout(time_t current_time);
+
+  // Creates a new alarm call for the next timeout
   void continueNextAlarm();
+
   void printJobsList();
   void killAllJobs();
   void removeFinishedJobs();
@@ -125,11 +124,53 @@ class JobsList {
   void removeJobById(int jobId);
   void removeTimeoutObject(pid_t pid);
   void removeFromStoppedList(int jobId);
-  JobEntry * getLastJob(int* lastJobId);
-  JobEntry *getLastStoppedJob(int *jobId = nullptr);
+  JobEntry* getLastJob(int* lastJobId);
+  JobEntry* getLastStoppedJob(int *jobId = nullptr);
 
+  // Returns a pointer to the job with the specific pid(or nullptr if
+  // there isn't any job with that pid)
   JobsList::JobEntry* jobExistsByPID(pid_t pid);
   
+};
+
+/***************************************** SmallShell *****************************************/
+class SmallShell {
+ private:
+  char* prompt;
+  char** prev_dir;
+  JobsList jobs;
+  pid_t smash_pid;
+
+  Command* current_cmd;
+  pid_t current_pid;
+
+  time_t alarm_start;
+  unsigned int last_alarm_time;
+
+  SmallShell();
+ public:
+  Command *CreateCommand(const char* cmd_line);
+  SmallShell(SmallShell const&)      = delete; // disable copy ctor
+  void operator=(SmallShell const&)  = delete; // disable = operator
+  static SmallShell& getInstance() // make SmallShell singleton
+  {
+    static SmallShell instance; // Guaranteed to be destroyed.
+    // Instantiated on first use.
+    return instance;
+  }
+  void updateCurrentCmd(Command* cmd) { this->current_cmd = cmd; }
+  void updateCurrentPid(pid_t pid) { this->current_pid = pid; }
+  Command* getCurrCmd() { return current_cmd; }
+  pid_t getCurrentPid() { return current_pid; }
+  pid_t getSmashPid() { return smash_pid; }
+  time_t getAlarmStart() { return alarm_start; }
+  void setAlarm(unsigned int seconds);
+  unsigned long getLastAlarmTime() { return last_alarm_time; }
+  JobsList& getJobsList();
+  void executeCommand(const char* cmd_line);
+  char* getPrompt() const;
+  char** getLastPwd();
+  ~SmallShell();
 };
 
 /***************************************** Built-in commands *****************************************/
@@ -281,46 +322,6 @@ class TimeoutCommand : public Command {
   TimeoutCommand(const char* cmd_line);
   virtual ~TimeoutCommand() {}
   void execute() override;
-};
-
-/***************************************** SmallShell *****************************************/
-class SmallShell {
- private:
-  char* prompt;
-  char** prev_dir;
-  JobsList jobs;
-  pid_t smash_pid;
-
-  Command* current_cmd;
-  pid_t current_pid;
-
-  time_t alarm_start;
-  unsigned int last_alarm_time;
-
-  SmallShell();
- public:
-  Command *CreateCommand(const char* cmd_line);
-  SmallShell(SmallShell const&)      = delete; // disable copy ctor
-  void operator=(SmallShell const&)  = delete; // disable = operator
-  static SmallShell& getInstance() // make SmallShell singleton
-  {
-    static SmallShell instance; // Guaranteed to be destroyed.
-    // Instantiated on first use.
-    return instance;
-  }
-  void updateCurrentCmd(Command* cmd) { this->current_cmd = cmd; }
-  void updateCurrentPid(pid_t pid) { this->current_pid = pid; }
-  Command* getCurrCmd() { return current_cmd; }
-  pid_t getCurrentPid() { return current_pid; }
-  pid_t getSmashPid() { return smash_pid; }
-  time_t getAlarmStart() { return alarm_start; }
-  void setAlarm(unsigned int seconds);
-  unsigned long getLastAlarmTime() { return last_alarm_time; }
-  JobsList& getJobsList();
-  void executeCommand(const char* cmd_line);
-  char* getPrompt() const;
-  char** getLastPwd();
-  ~SmallShell();
 };
 
 /***************************************** Externals command *****************************************/

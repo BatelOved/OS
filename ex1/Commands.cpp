@@ -113,6 +113,7 @@ void _removeBackgroundSign(char* cmd_line) {
   cmd_line[str.find_last_not_of(WHITESPACE, idx) + 1] = 0;
 }
 
+// Checks if a string argument is a correct number
 bool _argIsACorrectNum(const char* argument) {
   if(argument[0] == '-') {
     ++argument;
@@ -123,6 +124,319 @@ bool _argIsACorrectNum(const char* argument) {
     }
   }
   return true;
+}
+
+/***************************************** Timer methods *****************************************/
+
+time_t Timer::getTotalTime() {
+  if(is_running) {
+    return (this->total_time + (time(nullptr) - this->last_start));
+  }
+  return this->total_time;
+}
+
+void Timer::stopTimer() {
+  this->total_time = this->total_time + (time(nullptr) - this->last_start);
+  this->is_running = false;
+}
+
+void Timer::startTimer() {
+  this->last_start = time(nullptr);
+  this->is_running = true;
+}
+
+/***************************************** Command methods *****************************************/
+
+Command::Command(const char* cmd_line): timer() {
+  this->cmd_line = new char[strlen(cmd_line)+1];
+  strcpy(this->cmd_line, cmd_line);
+}
+
+Command::~Command() {
+  delete[] this->cmd_line;
+}
+
+/***************************************** TimeoutObject commands *****************************************/
+
+void TimeoutObject::updateTimeLeft(time_t current_time) {
+  this->time_left = this->time_to_alarm - (current_time - this->start_counting_point);
+}
+
+/***************************************** JobsList::JobEntry methods *****************************************/
+
+time_t JobsList::JobEntry::returnDiffTime() { 
+
+  return this->cmd->getRunningTime();
+
+}
+
+void JobsList::JobEntry::stopProcess() {
+
+  SmallShell& smash = SmallShell::getInstance();
+
+  this->is_stopped = true;
+  this->cmd->stopCommand(); // Stops the timer of the command
+    
+  smash.getJobsList().addJobToStoppedList(this);
+
+}
+
+void JobsList::JobEntry::resumeProcess() {
+
+  SmallShell& smash = SmallShell::getInstance();
+  
+  smash.getJobsList().removeFromStoppedList(this->job_id);
+
+  this->is_stopped = false;
+  this->cmd->startCommand(); //Starts the timer of the command
+
+}
+
+/***************************************** JobsList methods *****************************************/
+
+JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), stopped_jobs_vector(vector<JobEntry*>()), timeout_list(list<TimeoutObject*>()), max_id(1) {}
+
+JobsList::~JobsList() {}
+
+void JobsList::addJob(Command* cmd, pid_t child_pid, bool isStopped) {
+
+  int new_job_index = this->max_id++;
+  JobEntry* new_job = new JobEntry(new_job_index, child_pid, isStopped, cmd);
+  jobs_vector.push_back(new_job);
+  
+  if(isStopped) {
+    new_job->stopProcess();
+  }
+
+}
+
+void JobsList::addJobToStoppedList(JobEntry* stopped_job) {
+  if(stopped_job) {
+    this->stopped_jobs_vector.push_back(stopped_job);
+  }
+}
+
+void JobsList::addTimeoutObject(pid_t pid, time_t time_to_run, Command* cmd) {
+  if(!cmd) {
+    return;
+  }
+
+  TimeoutObject* new_object = new TimeoutObject(pid, time_to_run, cmd);
+  this->timeout_list.push_back(new_object);
+}
+
+TimeoutObject* JobsList::getCurrentTimeout(time_t current_time) {
+
+  //Updates all the timeout object
+  for(TimeoutObject* iter:timeout_list) {
+    iter->updateTimeLeft(current_time);
+  }
+
+  // Checks the updated objects for finding the process that caused
+  // the alarm signal
+  for(TimeoutObject* iter:timeout_list) {
+    if(iter->getTimeLeft() <= 0) {
+      return iter;
+    }
+  }
+
+  return nullptr;
+}
+
+void JobsList::continueNextAlarm() {
+
+  // We want to find the timeout with the minimal time that left
+  TimeoutObject* nextTimeout = *(timeout_list.begin());
+  if(!nextTimeout) { // In case the list is empty
+    return;
+  }
+
+  // We want to delete jobs which have been already done
+  // we will save a vector of pids and use it later
+  vector<pid_t> to_delete;
+
+  for(std::list<TimeoutObject*>::iterator time_out_iterator=timeout_list.begin(); time_out_iterator!=timeout_list.end(); time_out_iterator++) {
+    //The process is zombie, so we will delete it later
+    if((*time_out_iterator)->getTimeLeft()<=0 && waitpid((*time_out_iterator)->getPID(), nullptr, WNOHANG) > 0) {
+      to_delete.push_back((*time_out_iterator)->getPID());
+      continue;
+    }
+    //Finds the next command in the timeout hierarchy(with the minimum time left)
+    if((*time_out_iterator)->getTimeLeft() < nextTimeout->getTimeLeft()) {
+      nextTimeout = (*time_out_iterator);
+    }
+  }
+
+  //remove the zombies
+  for(pid_t pid_to_delete : to_delete) {
+    this->removeTimeoutObject(pid_to_delete);
+  }
+
+  // Sends the next alarm in the hierarchy
+  // We splitted the cases because the alarm is using the input 0
+  // with other meaning
+  if(nextTimeout->getTimeLeft() <= 0) {
+    kill(getpid(), SIGALRM);
+  }
+  else {
+    alarm(nextTimeout->getTimeLeft());
+  }
+}
+
+void JobsList::printJobsList() {
+  for (JobEntry* iter : jobs_vector) {
+    cout << "[" << iter->getJobID() << "] " << iter->getCommand()->getCmdLine() << " : " << iter->getProcessID() << " " << iter->returnDiffTime() << " secs";
+    if (iter->isStopped()) {
+      cout << " (stopped)";
+    }
+    cout << endl;
+  }
+}
+
+void JobsList::killAllJobs() {
+
+  cout<<"smash: sending SIGKILL signal to "<< this->jobs_vector.size() << " jobs:" <<endl;
+
+  for(JobEntry* iter : jobs_vector) {
+    if(kill(iter->getProcessID(), SIGKILL) == -1) {
+      perror("error: kill failed"); 
+    }
+    else {
+      int status;
+      if(waitpid(iter->getProcessID(), &status, 0) != iter->getProcessID()) {
+        perror("error: waitpid failed");
+      }
+      cout << iter->getProcessID() << ": " << iter->getCommand()->getCmdLine() << endl;
+    }
+  }
+  jobs_vector.clear();
+  max_id=1;
+}
+
+void JobsList::removeFinishedJobs() {
+
+  int status = -1;
+
+  // Takes any child that ends the running
+  pid_t child = waitpid(-1, &status, WNOHANG);
+
+  while((WIFEXITED(status) || WIFSIGNALED(status)) && child > 0) {
+    int jobId = (jobExistsByPID(child) ? jobExistsByPID(child)->getJobID() : 0);
+    if(jobId != 0) {
+      this->removeJobById(jobId);
+    }
+
+    // Takes another child
+    child = waitpid(-1, &status, WNOHANG);
+  }
+
+  if(jobs_vector.empty()) {
+    max_id=1;
+  }
+  else {
+    max_id=jobs_vector.back()->getJobID() + 1;
+  }
+}
+
+JobsList::JobEntry* JobsList::getJobById(int jobId) {
+  for(JobEntry* iter : jobs_vector) {
+    if(iter->getJobID() == jobId) {
+      return iter;
+    }
+  }
+
+  return nullptr;
+}
+
+void JobsList::removeJobById(int jobId) {
+
+  // Checks if the child exists in the timeout list
+  for(std::list<TimeoutObject*>::iterator t_o_iter=timeout_list.begin(); t_o_iter!=timeout_list.end();t_o_iter++) {
+    if(jobExistsByPID((*t_o_iter)->getPID())->getJobID() == jobId) {
+      timeout_list.erase(t_o_iter);
+      break;
+    }
+  }
+
+  // Checks if the child exists in the stopped list
+  for(std::vector<JobEntry*>::iterator stopped_iter=stopped_jobs_vector.begin(); stopped_iter!=stopped_jobs_vector.end();stopped_iter++) {
+    if((*stopped_iter)->getJobID() == jobId) {
+      stopped_jobs_vector.erase(stopped_iter);
+      break;
+    }
+  }
+
+  for(std::vector<JobEntry*>::iterator iter=jobs_vector.begin(); iter!=jobs_vector.end();iter++) {
+    if((*iter)->getJobID() == jobId) {
+      jobs_vector.erase(iter);
+      break;
+    }
+  }
+  if (jobs_vector.empty()) {
+    max_id = 1;
+  }
+  else {
+    max_id = jobs_vector.back()->getJobID() + 1;
+  }
+}
+
+void JobsList::removeTimeoutObject(pid_t pid) {
+
+  for(std::list<TimeoutObject*>::iterator time_out_iterator=timeout_list.begin(); time_out_iterator!=timeout_list.end(); time_out_iterator++) {
+    if((*time_out_iterator)->getPID() == pid) {
+      timeout_list.erase(time_out_iterator);
+      break;
+    }
+  }
+  
+}
+
+void JobsList::removeFromStoppedList(int jobId) {
+
+  for(std::vector<JobEntry*>::iterator iter=stopped_jobs_vector.begin(); iter!=stopped_jobs_vector.end();iter++) {
+    if((*iter)->getJobID() == jobId) {
+      stopped_jobs_vector.erase(iter);
+      break;
+    }
+  }
+
+}
+
+JobsList::JobEntry* JobsList::getLastJob(int* lastJobId) {
+
+  if(jobs_vector.empty()) {
+    return nullptr;
+  }
+  
+  if(lastJobId) {
+    *lastJobId = jobs_vector.back()->getJobID();
+  }
+
+  return jobs_vector.back();
+
+}
+
+JobsList::JobEntry* JobsList::getLastStoppedJob(int *jobId) {
+
+  JobEntry* last_stopped_job = nullptr;
+
+  for(JobEntry* iter : jobs_vector) {
+    if(iter->isStopped()) {
+      last_stopped_job = iter;
+    }
+  }
+
+  return last_stopped_job;
+
+}
+
+JobsList::JobEntry* JobsList::jobExistsByPID(pid_t pid) {
+  for(JobsList::JobEntry* iter:this->jobs_vector) {
+    if(iter->getProcessID() == pid) {
+      return iter;
+    }
+  }
+  return nullptr;
 }
 
 /***************************************** SmallShell methods *****************************************/
@@ -144,8 +458,13 @@ SmallShell::~SmallShell() {
   delete[] this->prompt;
 }
 
-char* SmallShell::getPrompt() const {
-    return this->prompt;
+void SmallShell::setAlarm(unsigned int seconds) {
+  this->alarm_start = time(nullptr);
+  this->last_alarm_time = seconds;
+}
+
+JobsList& SmallShell::getJobsList() {
+  return this->jobs;
 }
 
 /**
@@ -205,63 +524,20 @@ Command* SmallShell::CreateCommand(const char* cmd_line) {
 
 void SmallShell::executeCommand(const char *cmd_line) {
   this->jobs.removeFinishedJobs();
+
   Command* cmd = CreateCommand(cmd_line);
-
-  cmd->execute();
-
-  if (cmd->getBgCmd() == false) {
-    delete cmd;
-    this->current_cmd = nullptr;
+  if(cmd) {
+    cmd->execute();
   }
+
 }
 
-JobsList& SmallShell::getJobsList() {
-  return this->jobs;
+char* SmallShell::getPrompt() const {
+    return this->prompt;
 }
 
 char** SmallShell::getLastPwd() {
   return this->prev_dir;
-}
-
-void SmallShell::setAlarm(unsigned int seconds) {
-  this->alarm_start = time(nullptr);
-  this->last_alarm_time = seconds;
-}
-
-/***************************************** Timer methods *****************************************/
-
-time_t Timer::getTotalTime() {
-  if(is_running) {
-    return (this->total_time + (time(nullptr) - this->last_start));
-  }
-  return this->total_time;
-}
-
-void Timer::stopTimer() {
-  this->total_time = this->total_time + (time(nullptr) - this->last_start);
-  this->is_running = false;
-}
-
-void Timer::startTimer() {
-  this->last_start = time(nullptr);
-  this->is_running = true;
-}
-
-/***************************************** TimeoutObject commands *****************************************/
-
-void TimeoutObject::updateTimeLeft() {
-  this->time_left = this->time_to_alarm - (time(nullptr) - this->start_counting_point);
-}
-/***************************************** Command methods *****************************************/
-
-Command::Command(const char* cmd_line): timer() {
-  this->cmd_line = new char[strlen(cmd_line)+1];
-  strcpy(this->cmd_line, cmd_line);
-  this->bg_cmd = false;
-}
-
-Command::~Command() {
-  delete[] cmd_line;
 }
 
 /***************************************** Built-in commands *****************************************/
@@ -368,37 +644,26 @@ void KillCommand::execute() {
   char* args[COMMAND_MAX_ARGS+1];
   int args_num = _parseCommandLine(this->getCmdLine(), args);
   SmallShell& smash = SmallShell::getInstance();
-  JobsList jobs = smash.getJobsList();
+  JobsList& jobs = smash.getJobsList();
 
   char* first_param = args[1];
   char* second_param = args[2];
 
-  if(!first_param || !second_param || args_num != 3) {
+  if(!first_param || !second_param || args_num != 3 || first_param[0] != '-' 
+        || !_argIsACorrectNum(first_param) || !_argIsACorrectNum(second_param)) {
     cerr<<"smash error: kill: invalid arguments"<<endl;
     _freeArguments(args, args_num);
     return;
   } 
-  else if(first_param[0] != '-') {
-    cerr<<"smash error: kill: invalid arguments"<<endl;
-    _freeArguments(args, args_num);
-    return;
-  }//maybe we should check the number of aguments in createcommand function
 
-  if(!_argIsACorrectNum(first_param)) {
-    cerr<<"smash error: kill: invalid arguments"<<endl;
-    _freeArguments(args, args_num);
-    return;
-  }
-
-  if(!_argIsACorrectNum(second_param)) {
-    cerr<<"smash error: kill: invalid arguments"<<endl;
-    _freeArguments(args, args_num);
-    return;
-  }
-  //Should be splitted to the execute method
-  //Should check the number of the signal?
-  int signal=stoi(string(first_param+1));//Should be checked for correction
+  int signal=stoi(string(first_param+1)); // The first '-' has been already checked
   int job_id=stoi(string(second_param));
+
+  if(signal>_NSIG) {
+    cerr<<"smash error: kill: invalid arguments"<<endl;
+    _freeArguments(args, args_num);
+    return;
+  }
 
   JobsList::JobEntry* to_kill=jobs.getJobById(job_id);
   
@@ -410,7 +675,7 @@ void KillCommand::execute() {
 
   pid_t pid_to_kill=to_kill->getProcessID();
   if(kill(pid_to_kill, signal) == -1) {
-    cerr<<"smash error: kill: invalid arguments"<<endl;
+    perror("smash error: kill failed");
     _freeArguments(args, args_num);
     return;
   }
@@ -422,10 +687,10 @@ void KillCommand::execute() {
     smash.getJobsList().removeJobById(to_kill->getJobID());
   }
   if(signal == SIGSTOP) {
-    to_kill->stopTheJob();
+    to_kill->stopProcess();
   }
   if(signal == SIGCONT) {
-    to_kill->turnToBG();
+    to_kill->resumeProcess();
   }
   _freeArguments(args, args_num);
 }
@@ -437,7 +702,7 @@ void ForegroundCommand::execute() {
   char* args[COMMAND_MAX_ARGS+1];
   int args_num = _parseCommandLine(this->getCmdLine(), args);
   SmallShell& smash = SmallShell::getInstance();
-  JobsList jobs = smash.getJobsList();
+  JobsList& jobs = smash.getJobsList();
 
   if(args_num > 2) {
     cerr<<"smash error: fg: invalid arguments"<<endl;
@@ -456,7 +721,6 @@ void ForegroundCommand::execute() {
     curr_job = last;
   }
   else { //The number of arguments is 2
-    //Being used in some places, maybe it would be better in a seperate function
     
     if(!_argIsACorrectNum(args[1])) {
       cerr<<"smash error: fg: invalid arguments"<<endl;
@@ -478,7 +742,7 @@ void ForegroundCommand::execute() {
   cout<<curr_job->getCommand()->getCmdLine()<<" : "<<curr_job->getProcessID()<<endl;
   if(curr_job->isStopped()) {
     if(kill(curr_job->getProcessID(), SIGCONT) == -1) {
-      perror("smash error: kill");
+      perror("smash error: kill failed");
       _freeArguments(args, args_num);
       return;
     }
@@ -486,13 +750,15 @@ void ForegroundCommand::execute() {
 
   curr_job->resumeProcess();
 
-  int status;
+  int status = -1;
+
+  // Updates for running a fg command
   smash.updateCurrentCmd(curr_job->getCommand());
   smash.updateCurrentPid(curr_job->getProcessID());
-  //Have to handel the case that the ctrl+z is occuring here
   if(waitpid(curr_job->getProcessID(), &status, WUNTRACED) != curr_job->getProcessID()) {
     perror("smash error: waitpid failed");
   }
+  // Finish the fg run
   smash.updateCurrentCmd(nullptr);
   smash.updateCurrentPid(0);
 
@@ -506,7 +772,7 @@ void BackgroundCommand::execute() {
   char* args[COMMAND_MAX_ARGS+1];
   int args_num = _parseCommandLine(this->getCmdLine(), args);
   SmallShell& smash = SmallShell::getInstance();
-  JobsList jobs = smash.getJobsList();
+  JobsList& jobs = smash.getJobsList();
 
   if(args_num > 2) {
     cerr<<"smash error: bg: invalid arguments"<<endl;
@@ -525,7 +791,6 @@ void BackgroundCommand::execute() {
     curr_job = last;
   }
   else { //The number of arguments is 2
-    //Being used in some places, maybe it would be better in a seperate function
     
     if(!_argIsACorrectNum(args[1])) {
       cerr<<"smash error: bg: invalid arguments"<<endl;
@@ -554,12 +819,12 @@ void BackgroundCommand::execute() {
 
   if(curr_job->isStopped()) {
     if(kill(curr_job->getProcessID(), SIGCONT) == -1) {
-      perror("smash error: kill");
+      perror("smash error: kill failed");
       _freeArguments(args, args_num);
       return;
     }
   }
-  //Problems with the timer
+  
   curr_job->resumeProcess();
   
   _freeArguments(args, args_num);
@@ -572,11 +837,13 @@ void QuitCommand::execute() {
   SmallShell& smash = SmallShell::getInstance();
 
   char* args[COMMAND_MAX_ARGS+1];
-  _parseCommandLine(this->getCmdLine(), args);
+  int args_num = _parseCommandLine(this->getCmdLine(), args);
 
-  if(strcmp(args[1], "kill") == 0) {
+  if(args_num>=2 && strcmp(args[1], "kill") == 0) {
     smash.getJobsList().killAllJobs();
   }
+
+  _freeArguments(args, args_num);
 
   kill(getpid(),SIGKILL);
 }
@@ -599,7 +866,7 @@ void ExternalCommand::execute() {
 
 	if (p == 0) {
     setpgrp();
-    //Maybe it's better to free the memory of the "clean" address
+    
     const char* args[] = {"/bin/bash", "-c", command_line, NULL};
     execv(args[0], (char**)args);
 	}
@@ -980,242 +1247,5 @@ void TimeoutCommand::execute() {
       smash.updateCurrentPid(0);
       smash.updateCurrentCmd(nullptr);
     }
-  }
-}
-//We suggest you save all your timed commands in a list with a timestamp duration and pid.
-
-/***************************************** JobsList methods *****************************************/
-
-JobsList::JobsList(): jobs_vector(vector<JobEntry*>()), stopped_jobs_vector(vector<JobEntry*>()), timeout_list(list<TimeoutObject*>()), max_id(1) {}
-
-JobsList::~JobsList() {}
-
-void JobsList::addJob(Command* cmd, pid_t child_pid, bool isStopped) {
-    int new_job_index = this->max_id++;
-  
-    JobEntry* new_job = new JobEntry(new_job_index, child_pid, isStopped, cmd);
-
-    jobs_vector.push_back(new_job);
-    cmd->setBgCmd();
-
-    if(isStopped) {
-      new_job->stopProcess();
-    }
-}
-
-void JobsList::addTimeoutObject(pid_t pid, time_t time_to_run, Command* cmd) {
-  if(!cmd) {
-    return;
-  }
-  TimeoutObject* new_object = new TimeoutObject(pid, time_to_run, cmd);
-  this->timeout_list.push_back(new_object);
-}
-
-void JobsList::printJobsList() {
-  for (JobEntry* iter : jobs_vector) {
-    cout << "[" << iter->getJobID() << "] " << iter->getCommand()->getCmdLine() << " : " << iter->getProcessID() << " " << iter->returnDiffTime() << " secs";
-    if (iter->isStopped()) {
-      cout << " (stopped)";
-    }
-    cout << endl;
-  }
-}
-
-TimeoutObject* JobsList::getCurrentTimeout() {
-
-  for(TimeoutObject* iter:timeout_list) {
-    iter->updateTimeLeft();
-  }
-  for(TimeoutObject* iter:timeout_list) {
-    if(iter->getTimeLeft() <= 0) {
-      return iter;
-    }
-  }
-
-  return nullptr;
-}
-
-void JobsList::killAllJobs() {
-  // if( this->jobs_vector.empty()) {
-  //   return;
-  // }
-
-  cout<<"smash: sending SIGKILL signal to "<< this->jobs_vector.size() << " jobs:" <<endl;
-
-  for(JobEntry* iter : jobs_vector) {
-    if(kill(iter->getProcessID(), SIGKILL) == -1) {
-      perror("error: kill"); //Maybe have to change to other string
-    }
-    else {
-      int status;
-      if(waitpid(iter->getProcessID(), &status, 0) != iter->getProcessID()) {
-        perror("error: waitpid failed"); //Maybe have to change to other string
-      }
-      cout << iter->getProcessID() << ": " << iter->getCommand()->getCmdLine() << endl;
-    }
-  }
-  jobs_vector.clear();
-  max_id=1;
-}
-
-void JobsList::removeFinishedJobs() {
-  /*for(JobEntry* iter : jobs_vector) {
-    int status;
-    pid_t child = waitpid(iter->getProcessID(), &status, WNOHANG);
-    if ((WIFEXITED(status) || WIFSIGNALED(status)) && child > 0) {
-    //if(status == iter->getProcessID()) {
-    //if(status!=0) {
-      this->removeJobById(iter->getJobID());
-    }
-  }*/
-
-  int status;
-  pid_t child = waitpid(-1, &status, WNOHANG);
-
-  while((WIFEXITED(status) || WIFSIGNALED(status)) && child > 0) {
-    int jobId = (jobExistsByPID(child) ? jobExistsByPID(child)->getJobID() : 0);
-    if(jobId != 0) {
-      this->removeJobById(jobId);
-    }
-    child = waitpid(-1, &status, WNOHANG);
-  }
-
-  if(jobs_vector.empty()) {
-    max_id=1;
-  }
-  else {
-    max_id=jobs_vector.back()->getJobID() + 1;
-  }
-}
-
-JobsList::JobEntry* JobsList::getJobById(int jobId) {
-  for(JobEntry* iter : jobs_vector) {
-    if(iter->getJobID() == jobId) {
-      return iter;
-    }
-  }
-
-  return nullptr;
-}
-
-void JobsList::removeJobById(int jobId) {
-  for(std::vector<JobEntry*>::iterator iter=jobs_vector.begin(); iter!=jobs_vector.end();iter++) {
-    if((*iter)->getJobID() == jobId) {
-      jobs_vector.erase(iter);
-      //delete *iter; // Problematic
-      break;
-    }
-  }
-  if (jobs_vector.empty()) {
-    max_id = 1;
-  }
-  else {
-    max_id = jobs_vector.back()->getJobID() + 1;
-  }
-}
-
-void JobsList::removeTimeoutObject(pid_t pid) {
-  //Might be a problem if we call this and the pid is not exist-should check this case
-  //(Or it was because the erase and the break solve it)
-  for(std::list<TimeoutObject*>::iterator time_out_iterator=timeout_list.begin(); time_out_iterator!=timeout_list.end(); time_out_iterator++) {
-    if((*time_out_iterator)->getPID() == pid) {
-      timeout_list.erase(time_out_iterator);
-      break;
-    }
-  }
-}
-
-void JobsList::continueNextAlarm() {
-  TimeoutObject* nextTimeout = *(timeout_list.begin());
-  if(!nextTimeout) {
-    return;
-  }
-  for(std::list<TimeoutObject*>::iterator time_out_iterator=timeout_list.begin(); time_out_iterator!=timeout_list.end(); time_out_iterator++) {
-    if((*time_out_iterator)->getTimeLeft() < nextTimeout->getTimeLeft()) {
-      nextTimeout = (*time_out_iterator);
-    }
-  }
-  alarm(nextTimeout->getTimeLeft());
-}
-
-void JobsList::removeFromStoppedList(int jobId) {
-  for(std::vector<JobEntry*>::iterator iter=stopped_jobs_vector.begin(); iter!=stopped_jobs_vector.end();iter++) {
-    if((*iter)->getJobID() == jobId) {
-      stopped_jobs_vector.erase(iter);
-      //delete *iter; // Problematic
-      break;
-    }
-  }
-}
-
-JobsList::JobEntry* JobsList::getLastJob(int* lastJobId) {
-  if(jobs_vector.empty()) {
-    return nullptr;
-  }
-  
-  if(lastJobId) {
-    *lastJobId = jobs_vector.back()->getJobID();
-  }
-
-  return jobs_vector.back();
-
-}
-
-JobsList::JobEntry* JobsList::getLastStoppedJob(int *jobId) {
-  JobEntry* last_stopped_job = nullptr;
-
-  if(this->stopped_jobs_vector.empty()) {
-    return nullptr;
-  }
-  //Have a problem here with finding the last stopped job
-  last_stopped_job = this->stopped_jobs_vector.back();
-
-  if(last_stopped_job && jobId) {
-    *jobId = last_stopped_job->getJobID();
-  }
-
-  return last_stopped_job;
-}
-
-JobsList::JobEntry* JobsList::jobExistsByPID(pid_t pid) {
-  for(JobsList::JobEntry* iter:this->jobs_vector) {
-    if(iter->getProcessID() == pid) {
-      return iter;
-    }
-  }
-
-  return nullptr;
-}
-
-
-time_t JobsList::JobEntry::returnDiffTime() { 
-  if(this->is_stopped) {
-    return job_time;
-  }
-  return this->cmd->getRunningTime();
-}
-
-void JobsList::JobEntry::stopProcess() {
-  SmallShell& smash = SmallShell::getInstance();
-
-  this->is_stopped = true;
-  this->cmd->stopCommand();
-    
-  smash.getJobsList().addJobToStoppedList(this);
-
-}
-
-void JobsList::JobEntry::resumeProcess() {
-  SmallShell& smash = SmallShell::getInstance();
-  
-  smash.getJobsList().removeFromStoppedList(this->job_id);
-
-  this->is_stopped = false;
-  this->cmd->startCommand();
-}
-
-void JobsList::addJobToStoppedList(JobEntry* stopped_job) {
-  if(stopped_job) {
-    this->stopped_jobs_vector.push_back(stopped_job);
   }
 }
